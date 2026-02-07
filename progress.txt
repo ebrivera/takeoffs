@@ -13,6 +13,9 @@
 - Use `npm run typecheck` and `npm run lint` from `frontend/` directory
 - Services live in `cantena/services/` — new package created for PDF, VLM, pipeline services
 - PyMuPDF (`fitz`) needs `# type: ignore[import-untyped]` for mypy (no stubs available)
+- `anthropic` SDK has type stubs — do NOT add `# type: ignore[import-untyped]`
+- Use `ImageBlockParam` and `TextBlockParam` from `anthropic.types` for typed message content
+- System prompt strings must stay within 100-char line limit — use string concatenation `()`
 - Use dataclasses (not Pydantic) for internal service result types — Pydantic reserved for domain models
 - Empty PDFs (0 pages) are valid and should return empty result, not error
 
@@ -48,5 +51,21 @@
   - Title block text lives in the bottom-right quadrant of construction drawings — use `page.get_text(clip=rect)` for extraction
   - Use `contextlib.suppress(OSError)` instead of try/except/pass per ruff SIM105
   - ruff `--fix` auto-handles I001 import sorting
+---
+
+## 2026-02-07 - US-103
+- What was implemented: VLM analysis service — VlmAnalyzer class that sends construction drawing images to Anthropic Vision API and returns a structured BuildingModel.
+- Files changed:
+  - `backend/cantena/services/vlm_analyzer.py` — VlmAnalyzer, AnalysisContext, VlmAnalysisResult classes, SYSTEM_PROMPT constant
+  - `backend/tests/test_vlm_analyzer.py` — 13 tests covering well-formed parsing, retry on malformed, missing field defaults, context passthrough, error handling
+  - `backend/pyproject.toml` — added `anthropic>=0.39.0` dependency
+- **Learnings for future iterations:**
+  - `anthropic` SDK ships with type stubs — no `type: ignore` needed (unlike PyMuPDF)
+  - Use `ImageBlockParam` and `TextBlockParam` from `anthropic.types` for typed API content arrays
+  - mypy requires proper typed dicts for Anthropic API `messages[].content` — plain `dict[str, Any]` fails
+  - Long string constants (system prompts) must use `()` string concatenation to stay under 100-char line limit for ruff E501
+  - Mock `analyzer._client.messages.create` with `patch.object` for testing — mock response needs `.content[].type` and `.content[].text` attributes
+  - Create minimal valid PNGs in tests using raw struct/zlib — no need for Pillow in test deps
+  - Use `with (ctx1, ctx2):` syntax (Python 3.10+) instead of nested `with` per ruff SIM117
 ---
 

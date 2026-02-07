@@ -65,7 +65,7 @@
         "Typecheck passes"
       ],
       "priority": 3,
-      "passes": false,
+      "passes": true,
       "notes": "CRITICAL: All tests must mock the Anthropic API. Never make real API calls in automated tests. System prompt is key IP — put it in a separate constant or file. Single-call approach saves cost and latency. Ask VLM to think aloud before outputting JSON for accuracy."
     },
     {
