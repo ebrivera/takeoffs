@@ -17,6 +17,9 @@
 - Non-Pydantic imports used only for type hints need `TYPE_CHECKING` block; Pydantic model imports are fine at runtime due to `runtime-evaluated-base-classes` config
 - `dataclass(frozen=True)` works well for simple data containers that don't need Pydantic validation (e.g., CSIDivision)
 - City cost indexes keyed by `(city_lower, state_lower)` tuples with state-level fallback
+- CostEngine uses dependency injection (takes CostDataRepository in constructor) — instantiate with `CostEngine(repo)`
+- Complexity multiplier: weighted average of per-score multipliers (structural=0.30, mep=0.30, finishes=0.25, site=0.15)
+- Cost ranges always use 0.80-1.25 of expected (low = expected * 0.80, high = expected * 1.25)
 
 ---
 
@@ -76,4 +79,19 @@
   - City cost indexes use `(city_lower, state_lower)` tuple keys for fast lookup with case-insensitive matching
   - Fuzzy match order matters: relax exterior wall first (most likely to vary), then structural system, then both, then stories
   - Ruff `--fix` handles I001 import sorting — easier than manually reordering imports
+---
+
+## 2026-02-07 - US-005
+- What was implemented: Core CostEngine that takes a BuildingModel and produces a CostEstimate
+  - `cantena/engine.py`: CostEngine class with `estimate()` method implementing full pipeline: base $/SF lookup → location factor → complexity multiplier → range generation (0.80-1.25) → CSI division breakdown → assumption documentation
+  - Module-level constants: `_COMPLEXITY_MULTIPLIERS` (1→0.85, 2→0.95, 3→1.00, 4→1.10, 5→1.25), `_COMPLEXITY_WEIGHTS` (structural=0.30, mep=0.30, finishes=0.25, site=0.15)
+  - Private methods: `_calculate_complexity_multiplier`, `_generate_division_breakdown`, `_collect_confidence_assumptions`
+  - `tests/test_engine.py`: 22 tests in 8 test classes covering happy path, location factors, complexity multipliers, division breakdown, fuzzy match assumptions, errors, low confidence assumptions, realistic value checks
+- Files changed: backend/cantena/engine.py, backend/tests/test_engine.py
+- **Learnings for future iterations:**
+  - `TYPE_CHECKING` block needed for `CostDataRepository` and `BuildingModel` imports in engine.py — they're only used in type hints, not at runtime
+  - CostEngine takes CostDataRepository in constructor (dependency injection) — makes testing with empty/custom repos easy
+  - Division breakdown percentages from `csi_divisions.py` don't always sum to exactly 100% — use `rel=0.02` tolerance when asserting sums
+  - Fuzzy match fallback reasons from `get_best_match_sf_cost` are strings — wrap them in Assumption objects for the estimate
+  - Only `Confidence.LOW` fields generate assumptions, not `MEDIUM` or `HIGH` — matching the AC requirement
 ---

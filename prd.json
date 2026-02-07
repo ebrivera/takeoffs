@@ -93,7 +93,7 @@
         "Typecheck passes"
       ],
       "priority": 5,
-      "passes": false,
+      "passes": true,
       "notes": "This is THE core story. Complexity multiplier approach is how experienced estimators adjust conceptual estimates. 0.80-1.25 range matches RSMeans' ±20-25% accuracy for square foot estimates."
     },
     {
