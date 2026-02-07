@@ -17,6 +17,8 @@
 - Non-Pydantic imports used only for type hints need `TYPE_CHECKING` block; Pydantic model imports are fine at runtime due to `runtime-evaluated-base-classes` config
 - `dataclass(frozen=True)` works well for simple data containers that don't need Pydantic validation (e.g., CSIDivision)
 - City cost indexes keyed by `(city_lower, state_lower)` tuples with state-level fallback
+- Formatting: `format_currency` uses $10K threshold (>= $10K no cents, < $10K with cents); `format_cost_range` uses M suffix for >= $1M
+- CostEstimate has `to_summary_dict()` (flat, formatted for React) and `to_export_dict()` (nested, raw for Excel/PDF)
 - CostEngine uses dependency injection (takes CostDataRepository in constructor) — instantiate with `CostEngine(repo)`
 - Complexity multiplier: weighted average of per-score multipliers (structural=0.30, mep=0.30, finishes=0.25, site=0.15)
 - Cost ranges always use 0.80-1.25 of expected (low = expected * 0.80, high = expected * 1.25)
@@ -125,4 +127,18 @@
   - Warehouse with low complexity (0.925 multiplier) pushes cost_per_sf.low just below $75 ($74.89) — use $70 lower bound instead.
   - `pytest.approx` with `rel=0.02` is the standard tolerance for division sum assertions throughout the codebase.
   - Scenario builder functions are module-level (not fixtures) for reuse across test classes and potential import from other test files.
+---
+
+## 2026-02-07 - US-008
+- What was implemented: JSON output formatting and estimate summary helpers
+  - `cantena/formatting.py`: Three formatting functions — `format_currency` (threshold at $10K for cents), `format_cost_range` (M suffix for millions), `format_sf_cost` (per-SF range)
+  - `cantena/models/estimate.py`: Added `to_summary_dict()` (flat dict with formatted strings for React frontend) and `to_export_dict()` (full nested dict for Excel/PDF export) methods to CostEstimate
+  - `tests/test_formatting.py`: 35 tests in 7 test classes covering format_currency edge cases, format_cost_range (millions vs sub-million), format_sf_cost, to_summary_dict key completeness and values, to_export_dict structure, and consistency between both methods
+- Files changed: backend/cantena/formatting.py, backend/cantena/models/estimate.py, backend/tests/test_formatting.py
+- **Learnings for future iterations:**
+  - `format_currency` uses $10K threshold: >= $10K gets no cents (`$38,000,000`), < $10K gets cents (`$316.67`) — per-SF costs like $316.67 fall below threshold and show cents
+  - Formatting imports in `to_summary_dict()` use deferred import (`from cantena.formatting import ...` inside the method) to avoid circular imports since formatting.py uses TYPE_CHECKING for CostRange
+  - `to_export_dict()` uses `model_dump()` for nested Pydantic models and `.value` for enums to produce clean serializable dicts
+  - Top cost drivers sorted by `d.cost.expected` descending, taking top 3
+  - Ruff I001 fires on test files too — `ruff check --fix` handles import sorting automatically
 ---

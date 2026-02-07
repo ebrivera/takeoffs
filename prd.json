@@ -149,7 +149,7 @@
         "Typecheck passes"
       ],
       "priority": 8,
-      "passes": false,
+      "passes": true,
       "notes": "Construction PMs care deeply about number presentation. '$12.4M' is how they talk, not '$12,437,892.34'. Summary dict is designed to be directly consumable by a React frontend. Export dict feeds into PDF and Excel generation in PRD 2."
     }
   ]
