@@ -18,6 +18,10 @@
 - System prompt strings must stay within 100-char line limit — use string concatenation `()`
 - Use dataclasses (not Pydantic) for internal service result types — Pydantic reserved for domain models
 - Empty PDFs (0 pages) are valid and should return empty result, not error
+- Custom exceptions in `cantena/exceptions.py`: CantenaError base, PdfProcessingError, VlmAnalysisError, CostEstimationError
+- Pipeline wraps errors from each stage into typed exceptions — don't double-wrap if already the correct type
+- Use `TYPE_CHECKING` block for imports only used in type annotations (TC001/TC003) — runtime imports stay outside
+- `AnalysisContext` from `vlm_analyzer` is used at runtime (instantiated in pipeline) — keep outside TYPE_CHECKING
 
 ---
 
@@ -67,5 +71,21 @@
   - Mock `analyzer._client.messages.create` with `patch.object` for testing — mock response needs `.content[].type` and `.content[].text` attributes
   - Create minimal valid PNGs in tests using raw struct/zlib — no need for Pillow in test deps
   - Use `with (ctx1, ctx2):` syntax (Python 3.10+) instead of nested `with` per ruff SIM117
+---
+
+## 2026-02-07 - US-104
+- What was implemented: Analysis pipeline — AnalysisPipeline orchestrator that chains PDF → VLM → CostEngine, plus custom exception hierarchy in cantena/exceptions.py.
+- Files changed:
+  - `backend/cantena/exceptions.py` — CantenaError base, PdfProcessingError, VlmAnalysisError, CostEstimationError
+  - `backend/cantena/services/pipeline.py` — AnalysisPipeline class, PipelineResult dataclass, page selection heuristic
+  - `backend/tests/test_pipeline.py` — 14 tests covering happy path, page selection, error wrapping, cleanup on failure
+- **Learnings for future iterations:**
+  - Pipeline wraps errors from each stage into typed exceptions — use `isinstance` check to avoid double-wrapping
+  - Page selection heuristic: title block "floor plan" match > largest page by pixel area > page 1
+  - `AnalysisContext` is used at runtime (instantiated in `analyze()`) — must import outside `TYPE_CHECKING`
+  - All other pipeline type imports (`PdfProcessor`, `VlmAnalyzer`, `CostEngine`, result types) can go in `TYPE_CHECKING` since they're only in annotations
+  - `time.monotonic()` for timing (not `time.time()`) — monotonic is not affected by system clock changes
+  - `finally` block ensures cleanup even on exceptions — check `pdf_result is not None` before calling cleanup
+  - Use `MagicMock(spec=ClassName)` for service mocks in tests — catches wrong method names
 ---
 

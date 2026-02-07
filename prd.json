@@ -83,7 +83,7 @@
         "Typecheck passes"
       ],
       "priority": 4,
-      "passes": false,
+      "passes": true,
       "notes": "Pipeline is intentionally simple for MVP — single page analysis only. Page selection heuristic: first architectural floor plan page (largest page, or page with 'floor plan' in title block, or page 1). Multi-page analysis is Phase 1 work."
     },
     {
