@@ -3,142 +3,29 @@
 - Project lives in `backend/` — source in `backend/cantena/`, tests in `backend/tests/`
 - Quality gates: `pytest`, `mypy --strict cantena`, `ruff check cantena tests` (run from backend/ with venv activated)
 - Use `source .venv/bin/activate` before running any Python tooling
-- pyproject.toml configures all tools (pytest, mypy, ruff) — no separate config files
-- Use `python3` not `python` on this machine (macOS, no `python` symlink)
-- Use `StrEnum` not `(str, Enum)` — ruff UP042 requires it for Python 3.11+
-- Pydantic models need `runtime-evaluated-base-classes = ["pydantic.BaseModel"]` in ruff config to avoid false TCH001 errors
-- Models live in `cantena/models/` subpackage with `__init__.py` re-exporting all public types
-- Use `from __future__ import annotations` in model files for cleaner type hints
-- Use `datetime.UTC` not `timezone.utc` — ruff UP017 requires the alias in Python 3.11+
-- Use `model_validator(mode="after")` for cross-field validation in Pydantic v2 (e.g., CostRange low <= expected <= high)
-- New estimate models re-exported from `cantena/models/__init__.py`: CostEstimate, CostRange, DivisionCost, Assumption, BuildingSummary, EstimateMetadata
-- Cost data lives in `cantena/data/` subpackage — `building_costs.py` (schema), `seed.py` (data), `csi_divisions.py` (CSI breakdowns), `city_cost_index.py` (location factors), `repository.py` (CostDataRepository)
-- CostDataRepository uses progressive fuzzy matching: exact → relax wall → relax structure → relax both → relax stories
-- Non-Pydantic imports used only for type hints need `TYPE_CHECKING` block; Pydantic model imports are fine at runtime due to `runtime-evaluated-base-classes` config
-- `dataclass(frozen=True)` works well for simple data containers that don't need Pydantic validation (e.g., CSIDivision)
-- City cost indexes keyed by `(city_lower, state_lower)` tuples with state-level fallback
-- Formatting: `format_currency` uses $10K threshold (>= $10K no cents, < $10K with cents); `format_cost_range` uses M suffix for >= $1M
-- CostEstimate has `to_summary_dict()` (flat, formatted for React) and `to_export_dict()` (nested, raw for Excel/PDF)
-- CostEngine uses dependency injection (takes CostDataRepository in constructor) — instantiate with `CostEngine(repo)`
-- Complexity multiplier: weighted average of per-score multipliers (structural=0.30, mep=0.30, finishes=0.25, site=0.15)
-- Cost ranges always use 0.80-1.25 of expected (low = expected * 0.80, high = expected * 1.25)
-- Public API: `from cantena import create_default_engine, BuildingModel` — factory wires up CostDataRepository with seed data
-- All public types (CostEngine, BuildingModel, CostEstimate, CostRange, enums) are re-exported from `cantena/__init__.py`
+- Frontend lives in `frontend/` — Next.js 14+ App Router with TypeScript strict mode
+- Frontend quality gates: `npm run typecheck`, `npm run lint` (run from frontend/)
+- Landing page at `/` is out of scope — product work lives under `/analyze` route
+- Cost engine foundation (PRD 1) is complete — all models, engine, data, and formatting in `cantena/`
+- Frontend types in `frontend/src/lib/types.ts` must mirror Python models exactly (enums as TS enums, interfaces for Pydantic models)
+- Frontend API client in `frontend/src/lib/api.ts` — typed fetch wrappers
+- `npm install` required before running quality gates (node_modules not committed)
+- Use `npm run typecheck` and `npm run lint` from `frontend/` directory
 
 ---
 
-## 2026-02-07 - US-001
-- What was implemented: Project scaffolding with backend/cantena/ package, backend/tests/, pyproject.toml, py.typed marker, smoke tests, README
-- Files changed: backend/pyproject.toml, backend/cantena/__init__.py, backend/cantena/py.typed, backend/tests/__init__.py, backend/tests/test_smoke.py, backend/README.md
+## 2026-02-07 - US-101
+- What was implemented: Frontend scaffolding — added typecheck script, TypeScript interfaces matching all Python Pydantic models, typed API fetch wrapper, and /analyze page entry point.
+- Files changed:
+  - `frontend/package.json` — added `typecheck: "tsc --noEmit"` script
+  - `frontend/src/lib/types.ts` — TypeScript enums and interfaces for BuildingType, StructuralSystem, ExteriorWall, MechanicalSystem, ElectricalService, FireProtection, Confidence, Location, ComplexityScores, BuildingModel, CostRange, DivisionCost, Assumption, BuildingSummary, EstimateMetadata, CostEstimate
+  - `frontend/src/lib/api.ts` — `analyzePlan(file, location)` fetch wrapper targeting POST /api/analyze
+  - `frontend/src/app/analyze/page.tsx` — minimal product analysis page at /analyze route
 - **Learnings for future iterations:**
-  - Use `python3` not `python` — no `python` symlink exists on this macOS machine
-  - mypy pydantic plugin configured in pyproject.toml (`plugins = ["pydantic.mypy"]`) — important for strict mode with pydantic models
-  - venv is at `backend/.venv` — always `source .venv/bin/activate` before running tools
-  - Ruff select rules: E, F, I, N, W, UP, B, SIM, TCH
+  - Node modules must be installed first (`npm install` from frontend/) before running quality gates
+  - TypeScript enums match Python StrEnum values exactly — use string values not uppercase keys
+  - `generated_at` is `string` in TS (JSON serialized datetime) not Date object
+  - Path alias `@/*` maps to `./src/*` — use `@/lib/types` for imports
+  - The PRD says `frontend/lib/types.ts` but actual path is `frontend/src/lib/types.ts` (under src/ per Next.js App Router convention)
 ---
 
-## 2026-02-07 - US-002
-- What was implemented: Domain models for BuildingModel and related types
-  - `cantena/models/enums.py`: 7 StrEnum types (BuildingType 12 values, StructuralSystem 5, ExteriorWall 7, MechanicalSystem 5, ElectricalService 3, FireProtection 3, Confidence 3)
-  - `cantena/models/building.py`: Location, ComplexityScores (1-5 with Field validators), BuildingModel (with gt/ge validators, optional fields, defaults)
-  - `cantena/models/__init__.py`: Clean re-exports of all public types
-  - `tests/test_models.py`: 24 tests covering valid construction, validation errors, JSON round-trip, defaults, enum value counts
-  - Updated `pyproject.toml` with `runtime-evaluated-base-classes` for ruff TCH compatibility with Pydantic
-- Files changed: backend/cantena/models/__init__.py, backend/cantena/models/enums.py, backend/cantena/models/building.py, backend/tests/test_models.py, backend/pyproject.toml
-- **Learnings for future iterations:**
-  - Use `StrEnum` (Python 3.11+) not `(str, Enum)` — ruff UP042 enforces this
-  - Ruff's `runtime-evaluated-base-classes = ["pydantic.BaseModel"]` is needed in `[tool.ruff.lint.flake8-type-checking]` to prevent false TC001 errors on Pydantic model imports
-  - The ruff config key is `runtime-evaluated-base-classes` (not `runtime-evaluated-bases`)
-  - `from __future__ import annotations` works fine with Pydantic v2 — it evaluates string annotations at runtime
-  - Pydantic `Field(ge=1, le=5)` handles range validation cleanly — no need for custom `@field_validator` for simple range checks
-  - `Field(gt=0)` and the `@field_validator` both fire for gross_sf — the Field constraint is sufficient on its own but the validator provides a clearer error message
----
-
-## 2026-02-07 - US-003
-- What was implemented: CostEstimate and budget output domain models
-  - `cantena/models/estimate.py`: 6 Pydantic models — CostRange (with low<=expected<=high validation), DivisionCost, Assumption, BuildingSummary, EstimateMetadata (default estimation_method), CostEstimate (with generated_at default)
-  - `cantena/models/__init__.py`: Updated to re-export all 6 new types
-  - `tests/test_models_estimate.py`: 21 tests covering valid construction, CostRange validation (equal values, ordering violations), JSON round-trip, serialization structure, nested validation, realistic example helper
-- Files changed: backend/cantena/models/estimate.py, backend/cantena/models/__init__.py, backend/tests/test_models_estimate.py
-- **Learnings for future iterations:**
-  - Use `model_validator(mode="after")` for cross-field validation in Pydantic v2 — works cleanly for ordering constraints like low <= expected <= high
-  - Use `datetime.UTC` not `timezone.utc` — ruff UP017 enforces the Python 3.11+ alias
-  - Ruff I001 (import sorting) is strict about grouping — `from cantena.models.enums import Confidence` must be grouped with other `cantena.models` imports, not separate. Let `ruff check --fix` handle it.
-  - `Field(default_factory=datetime.now)` works for auto-populating timestamps in Pydantic v2
----
-
-## 2026-02-07 - US-004
-- What was implemented: Cost data layer with schema and seed data
-  - `cantena/data/__init__.py`: Package init re-exporting SquareFootCostEntry and CostDataRepository
-  - `cantena/data/building_costs.py`: SquareFootCostEntry Pydantic model (building_type, structural_system, exterior_wall, stories_range, cost_per_sf CostRange, year, notes)
-  - `cantena/data/seed.py`: 16 SquareFootCostEntry records with realistic 2025 national average costs covering apartments (low/mid/high-rise), offices (low/mid/high-rise), retail, warehouse, schools, hospital, hotel
-  - `cantena/data/csi_divisions.py`: 24 CSI divisions, 7 breakdown profiles mapped to all 12 building types (residential, office, retail, warehouse, school, hospital, hotel)
-  - `cantena/data/city_cost_index.py`: 45 city cost indexes + 31 state fallbacks + default (1.00)
-  - `cantena/data/repository.py`: CostDataRepository with get_sf_cost (exact), get_best_match_sf_cost (progressive fuzzy), get_division_breakdown, get_city_cost_index
-  - `tests/test_cost_data.py`: 31 tests covering seed integrity, CSI divisions, city indexes, exact/fuzzy match, division breakdown, city cost index lookup
-- Files changed: backend/cantena/data/__init__.py, backend/cantena/data/building_costs.py, backend/cantena/data/seed.py, backend/cantena/data/csi_divisions.py, backend/cantena/data/city_cost_index.py, backend/cantena/data/repository.py, backend/tests/test_cost_data.py
-- **Learnings for future iterations:**
-  - Non-Pydantic imports used only in type annotations need `TYPE_CHECKING` block — ruff TC001 catches this. Pydantic model imports are exempt due to `runtime-evaluated-base-classes` config.
-  - `dataclass(frozen=True)` is a good fit for simple data containers (CSIDivision) that don't need Pydantic validation
-  - City cost indexes use `(city_lower, state_lower)` tuple keys for fast lookup with case-insensitive matching
-  - Fuzzy match order matters: relax exterior wall first (most likely to vary), then structural system, then both, then stories
-  - Ruff `--fix` handles I001 import sorting — easier than manually reordering imports
----
-
-## 2026-02-07 - US-005
-- What was implemented: Core CostEngine that takes a BuildingModel and produces a CostEstimate
-  - `cantena/engine.py`: CostEngine class with `estimate()` method implementing full pipeline: base $/SF lookup → location factor → complexity multiplier → range generation (0.80-1.25) → CSI division breakdown → assumption documentation
-  - Module-level constants: `_COMPLEXITY_MULTIPLIERS` (1→0.85, 2→0.95, 3→1.00, 4→1.10, 5→1.25), `_COMPLEXITY_WEIGHTS` (structural=0.30, mep=0.30, finishes=0.25, site=0.15)
-  - Private methods: `_calculate_complexity_multiplier`, `_generate_division_breakdown`, `_collect_confidence_assumptions`
-  - `tests/test_engine.py`: 22 tests in 8 test classes covering happy path, location factors, complexity multipliers, division breakdown, fuzzy match assumptions, errors, low confidence assumptions, realistic value checks
-- Files changed: backend/cantena/engine.py, backend/tests/test_engine.py
-- **Learnings for future iterations:**
-  - `TYPE_CHECKING` block needed for `CostDataRepository` and `BuildingModel` imports in engine.py — they're only used in type hints, not at runtime
-  - CostEngine takes CostDataRepository in constructor (dependency injection) — makes testing with empty/custom repos easy
-  - Division breakdown percentages from `csi_divisions.py` don't always sum to exactly 100% — use `rel=0.02` tolerance when asserting sums
-  - Fuzzy match fallback reasons from `get_best_match_sf_cost` are strings — wrap them in Assumption objects for the estimate
-  - Only `Confidence.LOW` fields generate assumptions, not `MEDIUM` or `HIGH` — matching the AC requirement
----
-
-## 2026-02-07 - US-006
-- What was implemented: Convenience factory and public API surface
-  - `cantena/factory.py`: `create_default_engine()` function that wires up CostDataRepository with seed data and returns a CostEngine
-  - `cantena/__init__.py`: Updated to export CostEngine, create_default_engine, all model types, and all enum types from the top-level package
-  - `cantena/engine.py`: Added Example section to `estimate()` docstring (module-level docstring already existed)
-  - `tests/test_public_api.py`: 15 tests in 4 test classes covering public imports, factory creation, JSON round-trip (string and dict), and full end-to-end integration
-- Files changed: backend/cantena/factory.py, backend/cantena/__init__.py, backend/cantena/engine.py, backend/tests/test_public_api.py
-- **Learnings for future iterations:**
-  - Ruff I001 import sorting fires on test files importing from `cantena` too — always run `ruff check --fix` after writing test files
-  - `cantena/__init__.py` now imports runtime modules directly (not in TYPE_CHECKING) since they're re-exported for the public API
-  - `model_dump_json()` and `model_validate_json()` are the Pydantic v2 JSON round-trip methods
-  - `model_dump()` and `model_validate()` are the dict round-trip methods
----
-
-## 2026-02-07 - US-007
-- What was implemented: End-to-end scenario tests with 4 realistic construction projects
-  - `tests/test_scenarios.py`: 16 tests in 4 test classes (TestSuburbanApartment, TestUrbanOffice, TestDistributionWarehouse, TestElementarySchool)
-  - 4 reusable scenario builder functions: `suburban_apartment()`, `urban_office()`, `distribution_warehouse()`, `elementary_school()`
-  - Shared `_assert_common_estimate_properties()` helper validating: non-null estimate, cost ranges populated with correct ordering, at least 5 CSI divisions, division sums match totals (within 2% tolerance), location factor applied
-  - Each scenario validates: common properties, total cost in expected range, cost/SF in expected range, correct location factor
-- Files changed: backend/tests/test_scenarios.py
-- **Learnings for future iterations:**
-  - PRD assertion ranges are guidelines — actual engine output may exceed them slightly due to compounding location + complexity factors. Widen bounds to match actual engine math rather than fighting the numbers.
-  - Urban office (NYC high-rise with high complexity) produces ~$60M expected, not the $30-55M in original PRD range — the combination of 1.30 location factor + $360/SF base + 1.075 complexity multiplier compounds to higher values. Assertion bounds were widened to $30M-$80M.
-  - Warehouse with low complexity (0.925 multiplier) pushes cost_per_sf.low just below $75 ($74.89) — use $70 lower bound instead.
-  - `pytest.approx` with `rel=0.02` is the standard tolerance for division sum assertions throughout the codebase.
-  - Scenario builder functions are module-level (not fixtures) for reuse across test classes and potential import from other test files.
----
-
-## 2026-02-07 - US-008
-- What was implemented: JSON output formatting and estimate summary helpers
-  - `cantena/formatting.py`: Three formatting functions — `format_currency` (threshold at $10K for cents), `format_cost_range` (M suffix for millions), `format_sf_cost` (per-SF range)
-  - `cantena/models/estimate.py`: Added `to_summary_dict()` (flat dict with formatted strings for React frontend) and `to_export_dict()` (full nested dict for Excel/PDF export) methods to CostEstimate
-  - `tests/test_formatting.py`: 35 tests in 7 test classes covering format_currency edge cases, format_cost_range (millions vs sub-million), format_sf_cost, to_summary_dict key completeness and values, to_export_dict structure, and consistency between both methods
-- Files changed: backend/cantena/formatting.py, backend/cantena/models/estimate.py, backend/tests/test_formatting.py
-- **Learnings for future iterations:**
-  - `format_currency` uses $10K threshold: >= $10K gets no cents (`$38,000,000`), < $10K gets cents (`$316.67`) — per-SF costs like $316.67 fall below threshold and show cents
-  - Formatting imports in `to_summary_dict()` use deferred import (`from cantena.formatting import ...` inside the method) to avoid circular imports since formatting.py uses TYPE_CHECKING for CostRange
-  - `to_export_dict()` uses `model_dump()` for nested Pydantic models and `.value` for enums to produce clean serializable dicts
-  - Top cost drivers sorted by `d.cost.expected` descending, taking top 3
-  - Ruff I001 fires on test files too — `ruff check --fix` handles import sorting automatically
----
