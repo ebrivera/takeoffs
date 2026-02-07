@@ -88,6 +88,14 @@ class CostEngine:
 
         Raises:
             ValueError: If no cost data match is found for the building type.
+
+        Example::
+
+            from cantena import create_default_engine, BuildingModel
+
+            engine = create_default_engine()
+            estimate = engine.estimate(building, "My Office Project")
+            print(estimate.total_cost.expected)
         """
         assumptions: list[Assumption] = []
 
