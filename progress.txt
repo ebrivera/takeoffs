@@ -11,6 +11,10 @@
 - Frontend API client in `frontend/src/lib/api.ts` — typed fetch wrappers
 - `npm install` required before running quality gates (node_modules not committed)
 - Use `npm run typecheck` and `npm run lint` from `frontend/` directory
+- Services live in `cantena/services/` — new package created for PDF, VLM, pipeline services
+- PyMuPDF (`fitz`) needs `# type: ignore[import-untyped]` for mypy (no stubs available)
+- Use dataclasses (not Pydantic) for internal service result types — Pydantic reserved for domain models
+- Empty PDFs (0 pages) are valid and should return empty result, not error
 
 ---
 
@@ -27,5 +31,22 @@
   - `generated_at` is `string` in TS (JSON serialized datetime) not Date object
   - Path alias `@/*` maps to `./src/*` — use `@/lib/types` for imports
   - The PRD says `frontend/lib/types.ts` but actual path is `frontend/src/lib/types.ts` (under src/ per Next.js App Router convention)
+---
+
+## 2026-02-07 - US-102
+- What was implemented: PDF processing service — PdfProcessor class that converts PDF pages to 200 DPI PNG images with text extraction and title block heuristic.
+- Files changed:
+  - `backend/pyproject.toml` — added PyMuPDF and Pillow dependencies
+  - `backend/cantena/services/__init__.py` — new services package
+  - `backend/cantena/services/pdf_processor.py` — PdfProcessor, PageResult, PdfProcessingResult classes
+  - `backend/tests/test_pdf_processor.py` — 11 tests covering processing, text extraction, cleanup, and error handling
+- **Learnings for future iterations:**
+  - PyMuPDF (`import fitz`) has no type stubs — use `# type: ignore[import-untyped]` on the import
+  - PyMuPDF cannot save a zero-page PDF (`ValueError: cannot save with zero pages`) — create test empty PDFs with raw bytes instead
+  - Output directories must be created before fitz tries to write images (`mkdir(parents=True, exist_ok=True)`)
+  - fitz uses 72 DPI as baseline — zoom factor = target_dpi / 72 (e.g., 200/72 ≈ 2.78)
+  - Title block text lives in the bottom-right quadrant of construction drawings — use `page.get_text(clip=rect)` for extraction
+  - Use `contextlib.suppress(OSError)` instead of try/except/pass per ruff SIM105
+  - ruff `--fix` auto-handles I001 import sorting
 ---
 

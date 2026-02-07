@@ -43,7 +43,7 @@
         "Typecheck passes"
       ],
       "priority": 2,
-      "passes": false,
+      "passes": true,
       "notes": "200 DPI is intentional — higher DPI means more VLM tokens and slower processing. Title block text extraction (bottom-right quadrant) is a cheap heuristic for sheet name, scale, and project info without VLM cost. Use PyMuPDF for everything — no need for Poppler/pdf2image."
     },
     {
