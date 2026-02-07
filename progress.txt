@@ -20,6 +20,8 @@
 - CostEngine uses dependency injection (takes CostDataRepository in constructor) — instantiate with `CostEngine(repo)`
 - Complexity multiplier: weighted average of per-score multipliers (structural=0.30, mep=0.30, finishes=0.25, site=0.15)
 - Cost ranges always use 0.80-1.25 of expected (low = expected * 0.80, high = expected * 1.25)
+- Public API: `from cantena import create_default_engine, BuildingModel` — factory wires up CostDataRepository with seed data
+- All public types (CostEngine, BuildingModel, CostEstimate, CostRange, enums) are re-exported from `cantena/__init__.py`
 
 ---
 
@@ -94,4 +96,18 @@
   - Division breakdown percentages from `csi_divisions.py` don't always sum to exactly 100% — use `rel=0.02` tolerance when asserting sums
   - Fuzzy match fallback reasons from `get_best_match_sf_cost` are strings — wrap them in Assumption objects for the estimate
   - Only `Confidence.LOW` fields generate assumptions, not `MEDIUM` or `HIGH` — matching the AC requirement
+---
+
+## 2026-02-07 - US-006
+- What was implemented: Convenience factory and public API surface
+  - `cantena/factory.py`: `create_default_engine()` function that wires up CostDataRepository with seed data and returns a CostEngine
+  - `cantena/__init__.py`: Updated to export CostEngine, create_default_engine, all model types, and all enum types from the top-level package
+  - `cantena/engine.py`: Added Example section to `estimate()` docstring (module-level docstring already existed)
+  - `tests/test_public_api.py`: 15 tests in 4 test classes covering public imports, factory creation, JSON round-trip (string and dict), and full end-to-end integration
+- Files changed: backend/cantena/factory.py, backend/cantena/__init__.py, backend/cantena/engine.py, backend/tests/test_public_api.py
+- **Learnings for future iterations:**
+  - Ruff I001 import sorting fires on test files importing from `cantena` too — always run `ruff check --fix` after writing test files
+  - `cantena/__init__.py` now imports runtime modules directly (not in TYPE_CHECKING) since they're re-exported for the public API
+  - `model_dump_json()` and `model_validate_json()` are the Pydantic v2 JSON round-trip methods
+  - `model_dump()` and `model_validate()` are the dict round-trip methods
 ---

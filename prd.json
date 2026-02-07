@@ -111,7 +111,7 @@
         "Typecheck passes"
       ],
       "priority": 6,
-      "passes": false,
+      "passes": true,
       "notes": "This is about developer ergonomics. When PRD 2 adds FastAPI and the VLM pipeline, the integration point should be dead simple. JSON round-trip test is important because the frontend will consume this over HTTP."
     },
     {
