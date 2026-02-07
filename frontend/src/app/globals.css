@@ -1,0 +1,146 @@
+@import "tailwindcss";
+
+@theme inline {
+  --color-navy-950: #0a1628;
+  --color-navy-900: #0f1d32;
+  --color-navy-800: #162a4a;
+  --color-navy-700: #1e3a5f;
+  --color-navy-600: #2a4f7a;
+  --color-navy-500: #3b6fa0;
+  --color-navy-400: #5a8fc0;
+  --color-navy-300: #7fb0db;
+  --color-navy-200: #a8cde8;
+  --color-navy-100: #d4e6f4;
+  --color-navy-50: #eef5fa;
+
+  --color-blueprint-500: #2e6ea6;
+  --color-blueprint-400: #4a90c4;
+  --color-blueprint-300: #6aade0;
+  --color-blueprint-200: #93c5ea;
+  --color-blueprint-100: #c3def2;
+  --color-blueprint-50: #e8f1f9;
+
+  --color-accent-500: #e8792f;
+  --color-accent-400: #f09050;
+  --color-accent-300: #f4aa78;
+
+  --color-slate-bg: #f7f9fc;
+
+  --font-heading: "Barlow", sans-serif;
+  --font-body: "Barlow", sans-serif;
+  --font-mono: "IBM Plex Mono", monospace;
+}
+
+/* Blueprint grid background */
+.blueprint-grid {
+  background-color: var(--color-slate-bg);
+  background-image:
+    linear-gradient(rgba(46, 110, 166, 0.06) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(46, 110, 166, 0.06) 1px, transparent 1px),
+    linear-gradient(rgba(46, 110, 166, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(46, 110, 166, 0.03) 1px, transparent 1px);
+  background-size:
+    100px 100px,
+    100px 100px,
+    20px 20px,
+    20px 20px;
+}
+
+/* Hero blueprint grid - darker variant */
+.blueprint-grid-dark {
+  background-color: var(--color-navy-950);
+  background-image:
+    linear-gradient(rgba(106, 173, 224, 0.1) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(106, 173, 224, 0.1) 1px, transparent 1px),
+    linear-gradient(rgba(106, 173, 224, 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(106, 173, 224, 0.04) 1px, transparent 1px);
+  background-size:
+    100px 100px,
+    100px 100px,
+    20px 20px,
+    20px 20px;
+}
+
+/* Subtle animated gradient overlay */
+@keyframes gradient-shift {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+
+.gradient-animate {
+  background-size: 200% 200%;
+  animation: gradient-shift 8s ease infinite;
+}
+
+/* Stagger animation delays */
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(24px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-up {
+  animation: fade-up 0.7s ease-out forwards;
+  opacity: 0;
+}
+
+.delay-100 { animation-delay: 100ms; }
+.delay-200 { animation-delay: 200ms; }
+.delay-300 { animation-delay: 300ms; }
+.delay-400 { animation-delay: 400ms; }
+.delay-500 { animation-delay: 500ms; }
+.delay-600 { animation-delay: 600ms; }
+
+/* Dimension line decorations */
+.dimension-line {
+  position: relative;
+}
+.dimension-line::before,
+.dimension-line::after {
+  content: "";
+  position: absolute;
+  background-color: var(--color-blueprint-300);
+}
+.dimension-line::before {
+  top: 0;
+  left: 0;
+  width: 1px;
+  height: 100%;
+  opacity: 0.3;
+}
+.dimension-line::after {
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  height: 1px;
+  opacity: 0.3;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: var(--color-navy-50);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-navy-300);
+  border-radius: 3px;
+}
+
+body {
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Selection color */
+::selection {
+  background-color: rgba(46, 110, 166, 0.2);
+  color: var(--color-navy-950);
+}
