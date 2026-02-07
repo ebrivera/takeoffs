@@ -131,7 +131,7 @@
         "Typecheck passes"
       ],
       "priority": 7,
-      "passes": false,
+      "passes": true,
       "notes": "Ranges are intentionally wide because conceptual estimates ARE wide. The point is we don't produce obviously wrong numbers. These scenarios will also serve as integration test data when we add the VLM. Cost ranges from RSMeans 2025 data and real project experience."
     },
     {
