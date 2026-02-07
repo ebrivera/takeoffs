@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Any
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -85,3 +86,70 @@ class CostEstimate(BaseModel):
     generated_at: datetime = Field(default_factory=datetime.now)
     location_factor: float
     metadata: EstimateMetadata
+
+    def to_summary_dict(self) -> dict[str, Any]:
+        """Produce a flat summary dict for frontend consumption.
+
+        Returns a dict with formatted strings for direct display in a React UI.
+        """
+        from cantena.formatting import format_cost_range, format_currency, format_sf_cost
+
+        top_drivers = sorted(self.breakdown, key=lambda d: d.cost.expected, reverse=True)[:3]
+
+        return {
+            "project_name": self.project_name,
+            "building_type": self.building_summary.building_type,
+            "gross_sf_formatted": f"{self.building_summary.gross_sf:,.0f} SF",
+            "total_cost_formatted": format_currency(self.total_cost.expected),
+            "total_cost_range_formatted": format_cost_range(self.total_cost),
+            "cost_per_sf_formatted": format_currency(self.cost_per_sf.expected),
+            "cost_per_sf_range_formatted": format_sf_cost(self.cost_per_sf),
+            "location": self.building_summary.location,
+            "location_factor": self.location_factor,
+            "num_divisions": len(self.breakdown),
+            "top_cost_drivers": [
+                {
+                    "division_name": d.division_name,
+                    "cost_formatted": format_cost_range(d.cost),
+                    "percent_of_total": d.percent_of_total,
+                }
+                for d in top_drivers
+            ],
+            "num_assumptions": len(self.assumptions),
+            "generated_at_formatted": self.generated_at.strftime("%Y-%m-%d %H:%M"),
+        }
+
+    def to_export_dict(self) -> dict[str, Any]:
+        """Produce a detailed dict for Excel/PDF export.
+
+        Returns a dict with full nested data suitable for generating
+        detailed export documents.
+        """
+        return {
+            "project_name": self.project_name,
+            "building_summary": self.building_summary.model_dump(),
+            "total_cost": self.total_cost.model_dump(),
+            "cost_per_sf": self.cost_per_sf.model_dump(),
+            "breakdown": [
+                {
+                    "csi_division": d.csi_division,
+                    "division_name": d.division_name,
+                    "cost": d.cost.model_dump(),
+                    "percent_of_total": d.percent_of_total,
+                    "source": d.source,
+                }
+                for d in self.breakdown
+            ],
+            "assumptions": [
+                {
+                    "parameter": a.parameter,
+                    "assumed_value": a.assumed_value,
+                    "reasoning": a.reasoning,
+                    "confidence": a.confidence.value,
+                }
+                for a in self.assumptions
+            ],
+            "generated_at": self.generated_at.isoformat(),
+            "location_factor": self.location_factor,
+            "metadata": self.metadata.model_dump(),
+        }
