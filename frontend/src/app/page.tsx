@@ -1,7 +1,7 @@
 import { Navbar } from "@/components/Navbar";
 import { Hero } from "@/components/Hero";
 import { HowItWorks } from "@/components/HowItWorks";
-import { Team } from "@/components/Team";
+import { Feature } from "@/components/ui/feature-section-with-bento-grid";
 import { Footer } from "@/components/Footer";
 
 export default function Home() {
@@ -11,7 +11,7 @@ export default function Home() {
       <main>
         <Hero />
         <HowItWorks />
-        <Team />
+        <Feature />
       </main>
       <Footer />
     </>

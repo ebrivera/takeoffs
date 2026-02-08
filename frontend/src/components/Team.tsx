@@ -2,7 +2,7 @@ const team = [
   {
     name: "Sarah Chen",
     role: "CEO & Co-Founder",
-    bio: "Former estimator at Turner Construction. 12 years in commercial construction before founding Takeoffs.",
+    bio: "Former estimator at Turner Construction. 12 years in commercial construction before founding Cantena.",
     initials: "SC",
   },
   {
@@ -27,19 +27,7 @@ const team = [
 
 export function Team() {
   return (
-    <section id="team" className="relative bg-navy-950 py-24 md:py-32">
-      {/* Subtle grid overlay */}
-      <div className="pointer-events-none absolute inset-0 opacity-30">
-        <div
-          className="h-full w-full"
-          style={{
-            backgroundImage:
-              "linear-gradient(rgba(106, 173, 224, 0.07) 1px, transparent 1px), linear-gradient(90deg, rgba(106, 173, 224, 0.07) 1px, transparent 1px)",
-            backgroundSize: "60px 60px",
-          }}
-        />
-      </div>
-
+    <section id="team" className="blueprint-grid-dark relative py-24 md:py-32">
       <div className="relative z-10 mx-auto max-w-6xl px-6">
         {/* Section header */}
         <div className="mb-16 max-w-xl">
@@ -49,11 +37,11 @@ export function Team() {
               Our Team
             </span>
           </div>
-          <h2 className="text-3xl font-bold tracking-tight text-white sm:text-4xl">
+          <h2 className="text-3xl font-bold tracking-tight text-navy-950 sm:text-4xl">
             Built by people who&apos;ve{" "}
-            <span className="text-blueprint-300">done the work.</span>
+            <span className="text-navy-800">done the work.</span>
           </h2>
-          <p className="mt-4 text-lg leading-relaxed text-navy-400">
+          <p className="mt-4 text-lg leading-relaxed text-navy-700">
             Our team combines decades of construction industry experience with
             cutting-edge engineering. We&apos;ve sat in the estimating chair
             &mdash; and built the tech to change it.

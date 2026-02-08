@@ -1,64 +1,57 @@
 @import "tailwindcss";
 
 @theme inline {
-  --color-navy-950: #0a1628;
-  --color-navy-900: #0f1d32;
-  --color-navy-800: #162a4a;
-  --color-navy-700: #1e3a5f;
-  --color-navy-600: #2a4f7a;
-  --color-navy-500: #3b6fa0;
-  --color-navy-400: #5a8fc0;
-  --color-navy-300: #7fb0db;
-  --color-navy-200: #a8cde8;
-  --color-navy-100: #d4e6f4;
-  --color-navy-50: #eef5fa;
+  --color-navy-950: #121316;
+  --color-navy-900: #1a1c20;
+  --color-navy-800: #23262b;
+  --color-navy-700: #2d3138;
+  --color-navy-600: #444b55;
+  --color-navy-500: #606a78;
+  --color-navy-400: #8b96a4;
+  --color-navy-300: #b2bcc8;
+  --color-navy-200: #d0d6dd;
+  --color-navy-100: #e6eaee;
+  --color-navy-50: #f4f6f8;
 
-  --color-blueprint-500: #2e6ea6;
-  --color-blueprint-400: #4a90c4;
-  --color-blueprint-300: #6aade0;
-  --color-blueprint-200: #93c5ea;
-  --color-blueprint-100: #c3def2;
-  --color-blueprint-50: #e8f1f9;
+  --color-blueprint-500: #393d45;
+  --color-blueprint-400: #6a727e;
+  --color-blueprint-300: #a7b0bc;
+  --color-blueprint-200: #c8cfd8;
+  --color-blueprint-100: #dfe4ea;
+  --color-blueprint-50: #f5f7f9;
 
   --color-accent-500: #e8792f;
   --color-accent-400: #f09050;
   --color-accent-300: #f4aa78;
 
   --color-slate-bg: #f7f9fc;
+  --color-plan-paper: #ecece7;
+  --color-plan-paper-soft: #f3f2ee;
+  --color-plan-ink: #121212;
+  --color-plan-charcoal: #101217;
 
-  --font-heading: "Barlow", sans-serif;
-  --font-body: "Barlow", sans-serif;
-  --font-mono: "IBM Plex Mono", monospace;
+  /* shadcn semantic tokens mapped to existing palette */
+  --color-background: #121316;
+  --color-foreground: #e6eaee;
+  --color-muted: #1d2026;
+  --color-muted-foreground: #8b96a4;
+  --color-primary: #606a78;
+  --color-primary-foreground: #ffffff;
+  --color-secondary: #2d3138;
+  --color-secondary-foreground: #d0d6dd;
+  --color-destructive: #dc2626;
+  --color-destructive-foreground: #ffffff;
+  --color-ring: #8b96a4;
+
+  --font-heading: var(--font-josefin), sans-serif;
+  --font-body: var(--font-josefin), sans-serif;
+  --font-mono: var(--font-ibm-mono), monospace;
 }
 
-/* Blueprint grid background */
-.blueprint-grid {
-  background-color: var(--color-slate-bg);
-  background-image:
-    linear-gradient(rgba(46, 110, 166, 0.06) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(46, 110, 166, 0.06) 1px, transparent 1px),
-    linear-gradient(rgba(46, 110, 166, 0.03) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(46, 110, 166, 0.03) 1px, transparent 1px);
-  background-size:
-    100px 100px,
-    100px 100px,
-    20px 20px,
-    20px 20px;
-}
-
-/* Hero blueprint grid - darker variant */
+/* All section wrappers stay transparent so the fixed page background shows through. */
+.blueprint-grid,
 .blueprint-grid-dark {
-  background-color: var(--color-navy-950);
-  background-image:
-    linear-gradient(rgba(106, 173, 224, 0.1) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(106, 173, 224, 0.1) 1px, transparent 1px),
-    linear-gradient(rgba(106, 173, 224, 0.04) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(106, 173, 224, 0.04) 1px, transparent 1px);
-  background-size:
-    100px 100px,
-    100px 100px,
-    20px 20px,
-    20px 20px;
+  background: transparent !important;
 }
 
 /* Subtle animated gradient overlay */
@@ -135,12 +128,44 @@
 
 body {
   font-family: var(--font-body);
+  background-color: #efefeb;
+  color: var(--color-plan-ink);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
 /* Selection color */
 ::selection {
-  background-color: rgba(46, 110, 166, 0.2);
-  color: var(--color-navy-950);
+  background-color: rgba(18, 18, 18, 0.2);
+  color: #ffffff;
+}
+
+/* Full-page drawing sheet background */
+
+.construction-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background-color: #efefeb;
+  background-image: url("/backgrounds/construction-plan-bg.jpg");
+  background-position: center center;
+  background-repeat: no-repeat;
+  background-size: cover;
+  background-attachment: fixed;
+  opacity: 1;
+}
+
+.construction-overlay::before {
+  content: none;
+}
+
+.construction-overlay::after {
+  content: none;
+}
+
+/* Remove old decorative gradient overlays so only the photo background remains. */
+#hero > .pointer-events-none.absolute.inset-0,
+#how-it-works > .pointer-events-none.absolute {
+  display: none;
 }

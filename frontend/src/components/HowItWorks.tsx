@@ -3,7 +3,7 @@ const steps = [
     number: "01",
     title: "Upload Plans",
     description:
-      "Drop your blueprints, PDFs, or CAD files into Takeoffs. We support all standard construction document formats.",
+      "Drop your blueprints, PDFs, or CAD files into Cantena. We support all standard construction document formats.",
     icon: (
       <svg
         width="28"
@@ -101,21 +101,19 @@ const steps = [
 export function HowItWorks() {
   return (
     <section id="how-it-works" className="blueprint-grid relative py-24 md:py-32">
+      {/* Gradient transitions */}
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-20 bg-gradient-to-b from-navy-950 to-transparent" />
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-navy-950 to-transparent" />
+
       <div className="mx-auto max-w-6xl px-6">
         {/* Section header */}
         <div className="mb-16 max-w-xl">
-          <div className="mb-3 flex items-center gap-3">
-            <div className="h-px w-8 bg-blueprint-400" />
-            <span className="font-mono text-xs font-medium uppercase tracking-[0.2em] text-blueprint-500">
-              How It Works
-            </span>
-          </div>
           <h2 className="text-3xl font-bold tracking-tight text-navy-950 sm:text-4xl">
             From blueprint to bid{" "}
             <span className="text-blueprint-500">in three steps.</span>
           </h2>
-          <p className="mt-4 text-lg leading-relaxed text-navy-600">
-            No more counting, measuring, or manual data entry. Takeoffs handles
+          <p className="mt-4 text-lg leading-relaxed text-navy-800">
+            No more counting, measuring, or manual data entry. Cantena handles
             the tedious work so you can focus on winning contracts.
           </p>
         </div>
