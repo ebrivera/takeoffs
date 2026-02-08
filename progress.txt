@@ -1,5 +1,9 @@
 ## Codebase Patterns
 - Use `<Link>` from `next/link` for internal navigation — ESLint `@next/next/no-html-link-for-pages` rule forbids `<a href="/">`
+- PyMuPDF `get_drawings()` "re" items have 3 elements: `("re", Rect, orientation_flag)` — check `len(item) >= 2` not `== 2`
+- PyMuPDF drawing dict values are typed `object` — use `isinstance(raw, (int, float))` guard before `float()` for mypy strict
+- Geometry models use frozen dataclasses (not Pydantic) for internal service types — consistent with pipeline.py pattern
+- `cantena/geometry/` package: `extractor.py` (VectorExtractor, DrawingData, VectorPath, Point2D, BoundingRect, PathType)
 - `AnalyzeResponse` type in `types.ts` wraps the full backend response (estimate + analysis + metadata)
 - Tailwind v4 uses `@theme inline` and CSS custom properties — reference with `var(--color-navy-xxx)` in className
 - Python 3.11+ with pydantic v2 for domain models
@@ -207,5 +211,19 @@
   - Use `/app/node_modules` anonymous volume in frontend container to avoid overwriting node_modules from host mount
   - Backend uses `--factory` flag with uvicorn to call `create_app()` at startup
   - Keep Dockerfiles simple — no multi-stage builds for dev mode
+---
+
+## 2026-02-07 - US-301
+- What was implemented: Vector path extraction from PDF pages — VectorExtractor class that uses PyMuPDF `page.get_drawings()` to extract lines, rectangles, curves, and polylines as structured coordinate data.
+- Files changed:
+  - `backend/cantena/geometry/__init__.py` — new geometry package
+  - `backend/cantena/geometry/extractor.py` — VectorExtractor, DrawingData, VectorPath, Point2D, BoundingRect, DrawingStats, PathType models and extraction logic
+  - `backend/tests/test_extractor.py` — 11 tests: known geometry extraction (rect + 2 lines), rect coordinates, line coordinates with colors, filter_by_region excludes outside paths, filter preserves metadata, stats computed correctly, stats empty data, empty page returns empty, text-only returns empty paths, BoundingRect.contains, BoundingRect.intersects
+- **Learnings for future iterations:**
+  - PyMuPDF `get_drawings()` "re" (rectangle) items are 3-element tuples `("re", Rect, orientation_flag)` — not 2 elements. Use `len(item) >= 2` guard.
+  - PyMuPDF drawing dict values are typed as `object` from `dict[str, object]` — mypy strict requires `isinstance(raw, (int, float))` guard before calling `float()`.
+  - `shape.draw_rect()` + `shape.finish()` + `shape.commit()` is the correct PyMuPDF sequence for creating test PDFs with known geometry.
+  - Ruff E741 flags `l` as ambiguous variable name in generator expressions — use `seg` instead.
+  - Frozen dataclasses (not Pydantic) are used for internal geometry models, consistent with existing service layer patterns (e.g., PipelineResult).
 ---
 
