@@ -26,11 +26,19 @@ class Orientation(StrEnum):
 # 0.5mm ≈ 1.42 pts (72 pts/inch, 25.4 mm/inch).
 _MIN_WALL_WIDTH_PTS = 1.0
 
+# Minimum segment length in PDF points.
+# 36 pts ≈ 0.5" on paper ≈ 2 ft at 1/4" scale.
+# Excludes short annotation ticks, dimension leader lines, and symbols.
+_MIN_WALL_LENGTH_PTS = 36.0
+
 # Angular tolerance in degrees for H/V classification.
 _ANGLE_TOLERANCE_DEG = 2.0
 
 # Maximum RGB component sum for "dark" colours (black/dark-gray).
 _MAX_DARK_COLOR_SUM = 1.0
+
+# IQR multiplier for outlier removal (e.g. title block borders).
+_OUTLIER_IQR_FACTOR = 3.0
 
 
 @dataclass(frozen=True)
@@ -130,10 +138,18 @@ class WallDetector:
 
         Heuristics:
         - Lines with heavier stroke width (≥ 1.0 pts ≈ 0.5mm)
+        - Minimum length (≥ 36 pts) to exclude annotation ticks
         - Strictly horizontal or vertical (± 2°)
         - Dark colour (black / dark gray)
+        - IQR-based outlier removal (e.g. title block borders)
         """
         candidates = self._filter_wall_candidates(data.paths)
+
+        if not candidates:
+            return WallAnalysis()
+
+        # Remove length outliers (e.g. title block border lines)
+        candidates = self._remove_length_outliers(candidates)
 
         if not candidates:
             return WallAnalysis()
@@ -223,6 +239,10 @@ class WallDetector:
             # Stroke width check
             if path.line_width < _MIN_WALL_WIDTH_PTS:
                 continue
+            # Minimum length check (excludes annotation ticks)
+            length = _line_length(path.points[0], path.points[1])
+            if length < _MIN_WALL_LENGTH_PTS:
+                continue
             # Color check
             if not _is_dark_color(path.stroke_color):
                 continue
@@ -235,6 +255,34 @@ class WallDetector:
 
             candidates.append(path)
         return candidates
+
+    @staticmethod
+    def _remove_length_outliers(
+        candidates: list[VectorPath],
+    ) -> list[VectorPath]:
+        """Remove extreme length outliers using IQR method.
+
+        Title block borders and other non-wall lines are often
+        much longer than any structural wall. This removes lines
+        above Q3 + 3*IQR.
+        """
+        if len(candidates) < 4:
+            return candidates
+
+        lengths = sorted(
+            _line_length(p.points[0], p.points[1])
+            for p in candidates
+        )
+        q1 = lengths[len(lengths) // 4]
+        q3 = lengths[3 * len(lengths) // 4]
+        iqr = q3 - q1
+        upper = q3 + _OUTLIER_IQR_FACTOR * iqr
+
+        return [
+            p
+            for p in candidates
+            if _line_length(p.points[0], p.points[1]) <= upper
+        ]
 
     def _find_outer_boundary(
         self, segments: list[WallSegment]

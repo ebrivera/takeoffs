@@ -73,7 +73,7 @@
         "All quality gates pass (pytest, mypy --strict, ruff check)"
       ],
       "priority": 4,
-      "passes": false,
+      "passes": true,
       "notes": "Most important test story. ±25% area tolerance is generous for first pass. If wildly off, wall detection needs tuning (line weight threshold, color filter, polyline handling). Diagnostics required."
     },
     {

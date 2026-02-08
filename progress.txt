@@ -1,4 +1,5 @@
 ## Codebase Patterns
+- WallDetector uses `_MIN_WALL_LENGTH_PTS = 36` to exclude annotation ticks/leader lines and IQR-based outlier removal (`_OUTLIER_IQR_FACTOR = 3.0`) to exclude title block borders — both critical for accurate area computation on real drawings
 - `_normalize_scale_text()` in `scale.py` canonicalizes Unicode quotes and whitespace before regex matching — two-step approach for resilient scale detection
 - Integration tests in `backend/tests/integration/` — fixtures in `conftest.py`, test PDF at repo root `test_pdfs/first-floor.pdf`
 - Path from `tests/integration/conftest.py` to repo root: `Path(__file__).resolve().parents[3]`
@@ -368,5 +369,22 @@
   - The PDF has 118 text blocks total — plenty for analysis
   - `_normalize_scale_text` replaces all common Unicode quote variants (\u201c, \u201d, \u2033, \u2018, \u2019, \u2032, \u201e, \u00ab, \u00bb) to ASCII equivalents
   - Two-step approach (normalize → parse) is more resilient than adding more Unicode alternatives to regex character classes
+---
+
+## 2026-02-08 - US-354
+- What was implemented: Integration tests validating WallDetector on the real first-floor.pdf, plus tuning of WallDetector heuristics to produce accurate results. Tests cover: ≥8 wall segments (got 42), ≥3 H/V each (23 H, 19 V), total wall length 80-250 LF (got 227.5), enclosed area 380-700 SF (got 548.0, +7% error vs 512 SF), wall thickness 3-12" (got 6.2"), and a diagnostic summary.
+- Files changed:
+  - `backend/tests/integration/test_first_floor_walls.py` — new file: 7 tests across TestWallDetection class (segment count, H/V counts, wall length range, area range, thickness range, diagnostic summary)
+  - `backend/cantena/geometry/walls.py` — added `_MIN_WALL_LENGTH_PTS = 36` minimum segment length filter (excludes annotation ticks, dimension leader lines) and `_remove_length_outliers()` IQR-based outlier removal (excludes title block borders)
+  - `prd.json` — US-354 passes: true
+- **Learnings for future iterations:**
+  - Unfiltered WallDetector picked up 238 segments (385 LF, 1771 SF area) — mostly annotation ticks and short marks under 1 ft
+  - Two line widths on this drawing: 1.134 pts (dimension/annotation lines) and 1.417 pts (structural walls)
+  - Minimum length filter of 36 pts (~2 ft at 1/4" scale) removed 181 out of 238 annotation/tick segments
+  - Title block border was a 53.4 ft line at Y=751 spanning full page — IQR method (Q3 + 3*IQR upper bound) correctly identified and removed it
+  - Dimension annotation leader lines at Y=86 and Y=684 (1.2 ft each) were also removed by the 36pt minimum length filter
+  - Convex hull of wall endpoints gives ~548 SF (7% over expected 512 SF) — includes some porch area but well within ±25% tolerance
+  - Wall thickness detection via parallel pair analysis: median 6.2 inches (~10.5 pts gap between parallel wall lines)
+  - `pts_to_real_lf(pts, scale)` and `pts_to_real_sf(pts, scale)` from measurement.py are the correct conversion functions for integration tests
 ---
 
