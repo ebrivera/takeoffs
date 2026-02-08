@@ -1,4 +1,6 @@
 ## Codebase Patterns
+- Integration tests in `backend/tests/integration/` — fixtures in `conftest.py`, test PDF at repo root `test_pdfs/first-floor.pdf`
+- Path from `tests/integration/conftest.py` to repo root: `Path(__file__).resolve().parents[3]`
 - Use `<Link>` from `next/link` for internal navigation — ESLint `@next/next/no-html-link-for-pages` rule forbids `<a href="/">`
 - PyMuPDF `get_drawings()` "re" items have 3 elements: `("re", Rect, orientation_flag)` — check `len(item) >= 2` not `== 2`
 - PyMuPDF drawing dict values are typed `object` — use `isinstance(raw, (int, float))` guard before `float()` for mypy strict
@@ -324,5 +326,19 @@
   - `Image.frombytes("RGB", (pix.width, pix.height), pix.samples)` converts PyMuPDF Pixmap to Pillow Image for overlay drawing
   - APIRouter with `prefix="/api/debug"` keeps debug endpoints organized and separate from main API routes
   - `dataclasses.asdict(stats)` works for converting frozen dataclasses to JSON-serializable dicts, but BoundingRect with nested fields needs the dict to be serializable (asdict handles it recursively)
+---
+
+## 2026-02-08 - US-351
+- What was implemented: Integration test fixtures and smoke tests for first-floor.pdf — conftest.py with `first_floor_pdf` and `first_floor_page` fixtures, ground truth constants, and smoke test file verifying PDF loads, page count, dimensions, and text content.
+- Files changed:
+  - `backend/tests/integration/__init__.py` — new integration test package
+  - `backend/tests/integration/conftest.py` — `first_floor_pdf` fixture (yields fitz.Document, closes on teardown), `first_floor_page` fixture (yields first page), ground truth constants (EXPECTED_SCALE_FACTOR=48.0, EXPECTED_OVERALL_WIDTH_FT=32.0, EXPECTED_OVERALL_DEPTH_FT=16.0, EXPECTED_GROSS_AREA_SF=512.0, EXPECTED_TOTAL_WITH_PORCHES_SF=700.0, EXPECTED_ROOM_COUNT=7)
+  - `backend/tests/integration/test_first_floor_smoke.py` — 4 smoke tests: PDF loads, has exactly 1 page, page has non-zero dimensions, page contains text
+  - `prd.json` — US-351 passes: true
+- **Learnings for future iterations:**
+  - `test_pdfs/` is at repo root, not in `backend/` — `Path(__file__).resolve().parents[3]` from `tests/integration/conftest.py` reaches the repo root
+  - `Generator` import from `collections.abc` needs to go in `TYPE_CHECKING` block per ruff TC003
+  - Empty `if TYPE_CHECKING: pass` blocks trigger ruff TC005 — just remove them if unused
+  - Integration test fixtures use `Generator` return type for yield fixtures that need cleanup
 ---
 
