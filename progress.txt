@@ -5,6 +5,7 @@
 - Geometry models use frozen dataclasses (not Pydantic) for internal service types — consistent with pipeline.py pattern
 - `cantena/geometry/` package: `extractor.py` (VectorExtractor, DrawingData, VectorPath, Point2D, BoundingRect, PathType), `scale.py` (ScaleDetector, ScaleResult, TextBlock, Confidence, parse_dimension_string), `walls.py` (WallDetector, WallSegment, WallAnalysis, Orientation), `measurement.py` (MeasurementService, PageMeasurements, MeasurementConfidence, pts_to_real_sf, pts_to_real_lf)
 - Shapely 2.x needs `types-shapely` pip package for mypy stubs — `convex_hull` returns `BaseGeometry`, must `isinstance(hull, Polygon)` before `.exterior`
+- HybridAnalyzer in `cantena/services/hybrid_analyzer.py`: HybridAnalyzer, HybridAnalysisResult, MergeDecision, MergeSource — merges geometry PageMeasurements with VLM VlmAnalysisResult
 - `AnalyzeResponse` type in `types.ts` wraps the full backend response (estimate + analysis + metadata)
 - Tailwind v4 uses `@theme inline` and CSS custom properties — reference with `var(--color-navy-xxx)` in className
 - Python 3.11+ with pydantic v2 for domain models
@@ -273,5 +274,20 @@
   - Confidence cascade: NONE (no paths) -> LOW (estimated scale) -> MEDIUM (no outer boundary) -> HIGH (walls + boundary)
   - `_estimate_scale_from_page` returns a default 1/8"=1'-0" (factor 96) when no scale detected — conservative for architectural floor plans
   - Use `tempfile.NamedTemporaryFile` with context manager to satisfy ruff SIM115
+---
+
+## 2026-02-07 - US-305
+- What was implemented: Hybrid analysis service — HybridAnalyzer class that merges geometry-computed measurements with VLM semantic analysis, producing a merged BuildingModel with documented MergeDecision records for each field.
+- Files changed:
+  - `backend/cantena/services/hybrid_analyzer.py` — new file: HybridAnalyzer, HybridAnalysisResult, MergeDecision, MergeSource models and merge logic
+  - `backend/tests/test_hybrid_analyzer.py` — 11 tests across 5 test classes (TestGeometryHighConfidence, TestGeometryNoneFallsBackToVLM, TestBuildingTypeAlwaysFromVLM, TestMergeDecisionsDocumented, TestGeometryAnomalies)
+  - `prd.json` — US-305 passes: true
+- **Learnings for future iterations:**
+  - `from __future__ import annotations` makes all annotations string-evaluated — TYPE_CHECKING imports work for all annotation-only types (no `# type: ignore[name-defined]` hacks needed)
+  - Deferred import inside `_merge()` method (`from cantena.models.building import BuildingModel as _BuildingModel`) avoids circular imports when the type is used for construction at runtime but also in TYPE_CHECKING for annotations
+  - `AnalysisContext` from vlm_analyzer can go in TYPE_CHECKING since it's only used in type signatures (not instantiated in hybrid_analyzer)
+  - Merge logic: gross_sf from geometry if HIGH/MEDIUM confidence, else VLM; building_type/stories/structural/exterior/story_height always VLM; special_conditions merges both (geometry anomalies appended)
+  - Area discrepancy threshold is >20% between geometry and VLM — triggers a special_condition note
+  - MergeDecision records every field merge with source, reasoning, and confidence — provides trust/audit trail
 ---
 

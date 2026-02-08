@@ -119,7 +119,7 @@
         "Typecheck passes"
       ],
       "priority": 5,
-      "passes": false,
+      "passes": true,
       "notes": "Depends on US-304 and existing VlmAnalyzer. Geometry gives precise measurements, VLM gives semantic interpretation. MergeDecision log is crucial for trust — PM sees source and confidence for each field."
     },
     {
