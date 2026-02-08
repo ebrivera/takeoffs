@@ -127,27 +127,58 @@ def parse_dimension_string(text: str) -> float | None:
     return feet * 12.0 + inches
 
 
+def _normalize_scale_text(text: str) -> str:
+    """Normalize scale text for tolerant parsing.
+
+    Step 1 of the two-step approach: canonicalize Unicode quotes,
+    collapse whitespace, and standardize separators so that the
+    regex patterns in step 2 can match reliably.
+    """
+    # Replace Unicode right-double-quote / double-prime with ASCII "
+    text = text.replace("\u201c", '"')  # left double quote
+    text = text.replace("\u201d", '"')  # right double quote
+    text = text.replace("\u2033", '"')  # double prime
+    text = text.replace("\u201e", '"')  # double low-9 quote
+    text = text.replace("\u00ab", '"')  # left guillemet
+    text = text.replace("\u00bb", '"')  # right guillemet
+    # Replace Unicode right-single-quote / prime with ASCII '
+    text = text.replace("\u2018", "'")  # left single quote
+    text = text.replace("\u2019", "'")  # right single quote
+    text = text.replace("\u2032", "'")  # prime
+    # Collapse multiple spaces / tabs into one space
+    text = re.sub(r"[ \t]+", " ", text)
+    return text
+
+
 class ScaleDetector:
     """Detects drawing scale from title block text and dimension annotations."""
 
     def detect_from_text(self, page_text: str) -> ScaleResult | None:
         """Parse common architectural scale notations from page text.
 
-        Scans for patterns like 1/8"=1'-0", 1/4"=1'-0", 1:100, etc.
-        Returns the first valid scale found, or None.
+        Uses a two-step approach:
+        1. Normalize text (Unicode quotes, whitespace, separators)
+        2. Apply tolerant regex patterns to the normalized text
+
+        This avoids dependence on a single brittle regex by first
+        canonicalizing the many formatting variants found in real PDFs.
         """
+        # Step 1: Normalize text
+        normalized = _normalize_scale_text(page_text)
+
+        # Step 2: Tolerant parsing on normalized text
         # Try architectural fractional scales first
-        result = self._try_arch_scale(page_text)
+        result = self._try_arch_scale(normalized)
         if result is not None:
             return result
 
         # Try whole-inch scales: 1"=10'-0"
-        result = self._try_whole_inch_scale(page_text)
+        result = self._try_whole_inch_scale(normalized)
         if result is not None:
             return result
 
         # Try metric-style 1:N scales
-        return self._try_metric_scale(page_text)
+        return self._try_metric_scale(normalized)
 
     def detect_from_dimensions(
         self,

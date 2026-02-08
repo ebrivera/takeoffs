@@ -1,4 +1,5 @@
 ## Codebase Patterns
+- `_normalize_scale_text()` in `scale.py` canonicalizes Unicode quotes and whitespace before regex matching — two-step approach for resilient scale detection
 - Integration tests in `backend/tests/integration/` — fixtures in `conftest.py`, test PDF at repo root `test_pdfs/first-floor.pdf`
 - Path from `tests/integration/conftest.py` to repo root: `Path(__file__).resolve().parents[3]`
 - Use `<Link>` from `next/link` for internal navigation — ESLint `@next/next/no-html-link-for-pages` rule forbids `<a href="/">`
@@ -353,5 +354,19 @@
   - `Counter[float]` typing works cleanly for counting line width occurrences
   - f-strings without placeholders trigger ruff F541 — use plain strings for static text
   - Integration tests with `print()` output need `-s` flag to see during development, but pass without it
+---
+
+## 2026-02-08 - US-353
+- What was implemented: Integration tests validating ScaleDetector on the real first-floor.pdf, plus a two-step text normalization approach in `detect_from_text` (Unicode canonicalization + tolerant regex parsing). Tests cover text block extraction (>=20 blocks), scale detection from page text (scale_factor ~48.0), all 11 dimension string parses, dimension-based inference attempt, messy format resilience (Unicode quotes, extra whitespace, prime symbols), and correct behavior without API text interpreter.
+- Files changed:
+  - `backend/cantena/geometry/scale.py` — added `_normalize_scale_text()` function for two-step approach: normalizes Unicode quotes (\u201c/\u201d/\u2033/\u2018/\u2019/\u2032) to ASCII and collapses whitespace before regex matching
+  - `backend/tests/integration/test_first_floor_scale.py` — new file: 23 tests across 6 test classes (TestTextBlockExtraction, TestDetectFromText, TestParseDimensionStrings, TestDetectFromDimensions, TestMessyFormatResilience, TestNoApiTextInterpreter)
+  - `prd.json` — US-353 passes: true
+- **Learnings for future iterations:**
+  - Real PDF scale text is `SCALE: 1/4" =1'-0"` (note space before `=`) — existing regex already handles this but normalization makes it more robust
+  - `detect_from_dimensions` on this drawing returns scale_factor ~144 (not ~48) because the closest dimension/line pairing is a short annotation line with a dimension value — dimension calibration is a fallback, not primary
+  - The PDF has 118 text blocks total — plenty for analysis
+  - `_normalize_scale_text` replaces all common Unicode quote variants (\u201c, \u201d, \u2033, \u2018, \u2019, \u2032, \u201e, \u00ab, \u00bb) to ASCII equivalents
+  - Two-step approach (normalize → parse) is more resilient than adding more Unicode alternatives to regex character classes
 ---
 

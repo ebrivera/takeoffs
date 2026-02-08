@@ -54,7 +54,7 @@
         "All quality gates pass (pytest, mypy --strict, ruff check)"
       ],
       "priority": 3,
-      "passes": false,
+      "passes": true,
       "notes": "Title block scale strings vary a lot. Avoid single brittle regex by normalizing text and parsing via tokens/grammar. API text-normalization fallback is allowed but optional. Dimension calibration is the best non-text fallback."
     },
     {
