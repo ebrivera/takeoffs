@@ -298,6 +298,7 @@ Run these to validate PRD completion (unit + non-LLM integration only):
 - `tests/integration/test_first_floor_llm.py` contains real API tests (NOT mocks)
 - Mark tests with `@pytest.mark.llm`
 - Skip if `ANTHROPIC_API_KEY` missing: `pytest.skip("ANTHROPIC_API_KEY not set — skipping LLM integration tests")`
+  -add an assertion that scale_verification.verification_source != "UNVERIFIED" when ANTHROPIC_API_KEY is set
 - `test_llm_room_interpretation`:
   - run pipeline to get rooms + measurements
   - send to `LlmGeometryInterpreter` with real API
