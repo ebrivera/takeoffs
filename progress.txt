@@ -13,6 +13,9 @@
 - Room label matching uses `_ROOM_NAMES` frozenset with longest-first substring matching
 - Anthropic `ImageBlockParam` `media_type` requires `Literal["image/jpeg", "image/png", "image/gif", "image/webp"]` — plain `str` fails mypy
 - `Path` import goes in `TYPE_CHECKING` block when only used in annotations (ruff TC003)
+- `ScaleVerifier` and `ScaleVerificationResult` from `cantena.geometry.scale_verify`
+- LLM verification decision logic: ±5% confirmed, ±10% confirmed+warning, >10% keep deterministic+warning
+- `VerificationSource` is a `Literal` type alias, not an enum (keeps it simple for dataclass field)
 
 ---
 
@@ -170,5 +173,35 @@
   - `_extract_json()` reused from VlmAnalyzer pattern — extracts JSON from ``` fences
   - Mocking pattern: `patch.object(interpreter._client.messages, "create", ...)` — same as VlmAnalyzer tests
   - For error fallback tests, use `anthropic.APITimeoutError(request=MagicMock())`, `anthropic.APIConnectionError(request=MagicMock())`, and `anthropic.RateLimitError(message=..., response=MagicMock(status_code=429, headers={}), body=None)`
+---
+
+## 2026-02-08 - US-378
+- What was implemented: Scale verification safety rail via LLM in `cantena/geometry/scale_verify.py`. `ScaleVerifier` class with `verify_or_recover_scale(page, detected, text_blocks)` method that sends title-block text and candidate scale strings to Claude for verification/recovery. Uses narrow LLM inputs (title-block region text, candidate scale patterns). Decision logic: HIGH detected + LLM agrees ±5% → LLM_CONFIRMED; detected None + LLM HIGH/MEDIUM → LLM_RECOVERED; LLM disagrees >10% → keep DETERMINISTIC with warning; API failure/timeout/429 → UNVERIFIED with best deterministic scale.
+- Files changed:
+  - `backend/cantena/geometry/scale_verify.py` — new module: `ScaleVerifier`, `ScaleVerificationResult` (frozen dataclass), `VerificationSource` Literal type, `_build_user_text()`, `_find_scale_candidates()`, `_extract_json()`, `_parse_llm_json()` helpers
+  - `backend/tests/test_scale_verify.py` — 18 tests across 7 test classes: TestDeterministicHighLlmAgrees (3), TestDeterministicNoneLlmRecovers (2), TestDisagreement (2), TestTimeoutAndErrors (4), TestLlmLowConfidence (2), TestMalformedResponse (2), TestScaleVerificationResultModel (3)
+  - `backend/tests/integration/test_first_floor_scale_llm.py` — opt-in integration test: skips if ANTHROPIC_API_KEY missing; asserts LLM-verifier returns ~48.0 (±2) for first-floor.pdf
+  - `prd.json` — US-378 passes: true
+- **Learnings for future iterations:**
+  - `VerificationSource` as `Literal["DETERMINISTIC", "LLM_CONFIRMED", "LLM_RECOVERED", "UNVERIFIED"]` is simpler than a StrEnum for a type alias used in one dataclass
+  - Title-block region text extraction: filter text blocks by y >= 80% of page height
+  - Scale candidate detection regex: `(?:scale|1/\d+|1:\d+|\d+/\d+\s*[\"'=])` catches most scale-like text
+  - `anthropic.APIStatusError` is the base class for 401/403/500 errors — catching it alongside the specific errors (Timeout, Connection, RateLimit) provides complete coverage
+  - `_extract_json()` pattern duplicated from llm_geometry_interpreter.py — could be refactored to shared utility later
+  - Comparison thresholds: ≤5% exact match, ≤10% confirmed with note, >10% disagreement — mirrors typical construction tolerance levels
+---
+
+## 2026-02-08 - US-375
+- What was implemented: Updated MeasurementService to use room-based area computation via RoomDetector, with optional LLM enrichment and scale verification. `PageMeasurements` extended with `rooms`, `room_count`, `polygonize_success`, `llm_interpretation`, and `scale_verification` fields. `MeasurementService` constructor now takes optional `llm_interpreter: LlmGeometryInterpreter | None` and `scale_verifier: ScaleVerifier | None`. Area computation priority: (1) sum of polygonized room areas (HIGH), (2) convex hull (MEDIUM), (3) page-size estimate (LOW). Confidence reflects which area method was used and whether scale was verified/confirmed.
+- Files changed:
+  - `backend/cantena/geometry/measurement.py` — extended `PageMeasurements` with room/LLM/scale-verification fields; updated `MeasurementService.__init__()` with optional `llm_interpreter` and `scale_verifier`; updated `measure()` to run RoomDetector.detect_rooms() + label_rooms(), scale verification, LLM enrichment, and area priority logic; added `_run_llm_enrichment()` helper
+  - `backend/tests/test_measurement_rooms.py` — new file: 15 tests across 7 test classes (TestRoomsIncludedWhenPolygonizeWorks, TestPolygonizedTotalCloserThanConvexHull, TestFallbackToConvexHull, TestRoomCountAndPolygonizeSuccess, TestWithoutLlmInterpreter, TestWithScaleVerifier, TestBackwardCompatibility)
+  - `prd.json` — US-375 passes: true
+- **Learnings for future iterations:**
+  - `from __future__ import annotations` makes all type annotations strings at runtime — so `TYPE_CHECKING`-only imports work for constructor parameters (`ScaleVerifier`, `LlmGeometryInterpreter`)
+  - Deferred import of `RoomDetector` inside `measure()` avoids circular imports (rooms.py imports from extractor.py which measurement.py also imports)
+  - Ruff SIM102 catches nested `if` statements — combine with `and` instead of nesting
+  - `MeasurementService` backward compatibility: new optional constructor params default to `None`; new `PageMeasurements` fields have default values; all 8 existing tests pass unchanged
+  - Room-based area uses `room_analysis.total_area_sf` directly when `polygonize_success` is True, avoiding redundant pts-to-sf conversion
 ---
 

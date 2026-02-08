@@ -113,7 +113,7 @@
         "Typecheck passes"
       ],
       "priority": 6,
-      "passes": false,
+      "passes": true,
       "notes": "The core measurement improvement is room-sum area. Scale verification feeds into confidence and reduces 'silent wrong' outcomes."
     },
     {

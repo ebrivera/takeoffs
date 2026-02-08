@@ -14,7 +14,17 @@ if TYPE_CHECKING:
         Point2D,
         VectorExtractor,
     )
+    from cantena.geometry.rooms import DetectedRoom, RoomAnalysis
+    from cantena.geometry.scale import TextBlock
+    from cantena.geometry.scale_verify import (
+        ScaleVerificationResult,
+        ScaleVerifier,
+    )
     from cantena.geometry.walls import WallDetector
+    from cantena.services.llm_geometry_interpreter import (
+        LlmGeometryInterpreter,
+        LlmInterpretation,
+    )
 
 from cantena.geometry.scale import (
     Confidence,
@@ -65,13 +75,19 @@ class PageMeasurements:
     wall_count: int
     confidence: MeasurementConfidence
     raw_data: DrawingData
+    rooms: list[DetectedRoom] | None = None
+    room_count: int = 0
+    polygonize_success: bool = False
+    llm_interpretation: LlmInterpretation | None = None
+    scale_verification: ScaleVerificationResult | None = None
 
 
 class MeasurementService:
     """Combines vector extraction + scale detection + wall analysis.
 
     Produces real-world measurements (square feet, linear feet)
-    from a single PDF page.
+    from a single PDF page.  Optionally uses RoomDetector for
+    polygonize-based area computation and LLM enrichment.
     """
 
     def __init__(
@@ -79,13 +95,19 @@ class MeasurementService:
         extractor: VectorExtractor,
         scale_detector: ScaleDetector,
         wall_detector: WallDetector,
+        llm_interpreter: LlmGeometryInterpreter | None = None,
+        scale_verifier: ScaleVerifier | None = None,
     ) -> None:
         self._extractor = extractor
         self._scale_detector = scale_detector
         self._wall_detector = wall_detector
+        self._llm_interpreter = llm_interpreter
+        self._scale_verifier = scale_verifier
 
     def measure(self, page: fitz.Page) -> PageMeasurements:
         """Run full measurement pipeline on a single page."""
+        from cantena.geometry.rooms import RoomDetector
+
         # Step 1: Extract vector data
         data = self._extractor.extract(page)
 
@@ -110,6 +132,15 @@ class MeasurementService:
                 data.paths, text_blocks
             )
 
+        # Step 2b: Optionally verify/recover scale via LLM
+        scale_verification: ScaleVerificationResult | None = None
+        if self._scale_verifier is not None:
+            scale_verification = self._scale_verifier.verify_or_recover_scale(
+                page, scale, text_blocks
+            )
+            if scale_verification.scale is not None:
+                scale = scale_verification.scale
+
         # Step 3: Detect walls
         wall_analysis = self._wall_detector.detect(data)
 
@@ -123,14 +154,51 @@ class MeasurementService:
         else:
             confidence = MeasurementConfidence.MEDIUM
 
-        # Compute area
-        gross_area_sf: float | None = None
+        # Step 5: Detect rooms via polygonize
+        room_analysis: RoomAnalysis | None = None
+        room_detector = RoomDetector()
         if wall_analysis.segments:
+            page_area_pts = data.page_width_pts * data.page_height_pts
+            room_analysis = room_detector.detect_rooms(
+                wall_analysis.segments,
+                scale_factor=scale.scale_factor if scale else None,
+                page_area_pts=page_area_pts if page_area_pts > 0 else None,
+            )
+            # Label rooms from text blocks
+            if room_analysis.rooms and text_blocks:
+                room_analysis = room_detector.label_rooms(
+                    room_analysis, text_blocks
+                )
+
+        # Step 6: Compute area (priority: rooms > convex hull > page estimate)
+        gross_area_sf: float | None = None
+        polygonize_success = False
+        if (
+            room_analysis is not None
+            and room_analysis.polygonize_success
+            and room_analysis.total_area_sf is not None
+        ):
+            # Priority 1: sum of polygonized room areas (HIGH)
+            gross_area_sf = room_analysis.total_area_sf
+            polygonize_success = True
+            if confidence == MeasurementConfidence.MEDIUM:
+                confidence = MeasurementConfidence.HIGH
+        elif wall_analysis.segments:
+            # Priority 2: convex hull area (MEDIUM)
             area_pts = self._wall_detector.compute_enclosed_area_pts(
                 wall_analysis.segments
             )
             if area_pts is not None and scale is not None:
                 gross_area_sf = pts_to_real_sf(area_pts, scale)
+
+        # Boost confidence if scale was verified/confirmed
+        if (
+            scale_verification is not None
+            and scale_verification.verification_source
+            in ("LLM_CONFIRMED", "LLM_RECOVERED")
+            and confidence == MeasurementConfidence.MEDIUM
+        ):
+            confidence = MeasurementConfidence.HIGH
 
         # Compute perimeter
         perimeter_lf: float | None = None
@@ -148,6 +216,13 @@ class MeasurementService:
                 wall_analysis.total_wall_length_pts, scale
             )
 
+        # Step 7: Optionally run LLM enrichment
+        llm_interpretation: LlmInterpretation | None = None
+        if self._llm_interpreter is not None and room_analysis is not None:
+            llm_interpretation = self._run_llm_enrichment(
+                scale, room_analysis, text_blocks
+            )
+
         return PageMeasurements(
             scale=scale,
             gross_area_sf=gross_area_sf,
@@ -156,7 +231,49 @@ class MeasurementService:
             wall_count=len(wall_analysis.segments),
             confidence=confidence,
             raw_data=data,
+            rooms=room_analysis.rooms if room_analysis else None,
+            room_count=room_analysis.room_count if room_analysis else 0,
+            polygonize_success=polygonize_success,
+            llm_interpretation=llm_interpretation,
+            scale_verification=scale_verification,
         )
+
+    def _run_llm_enrichment(
+        self,
+        scale: ScaleResult | None,
+        room_analysis: RoomAnalysis,
+        text_blocks: list[TextBlock],
+    ) -> LlmInterpretation | None:
+        """Run LLM geometry interpretation if interpreter is available."""
+        from cantena.services.llm_geometry_interpreter import (
+            GeometrySummary,
+            RoomSummary,
+        )
+
+        if self._llm_interpreter is None:
+            return None
+
+        room_summaries = [
+            RoomSummary(
+                room_index=r.room_index,
+                label=r.label,
+                area_sf=r.area_sf,
+                perimeter_lf=r.perimeter_lf,
+            )
+            for r in room_analysis.rooms
+        ]
+
+        summary = GeometrySummary(
+            scale_notation=scale.notation if scale else None,
+            scale_factor=scale.scale_factor if scale else None,
+            total_area_sf=room_analysis.total_area_sf,
+            rooms=room_summaries,
+            all_text_blocks=[tb.text for tb in text_blocks],
+            wall_count=0,
+            measurement_confidence="HIGH",
+        )
+
+        return self._llm_interpreter.interpret(summary)
 
     @staticmethod
     def _estimate_scale_from_page(data: DrawingData) -> ScaleResult:
