@@ -2,8 +2,18 @@
 
 import { useCallback, useRef, useState } from "react";
 import Link from "next/link";
-import { analyzePlan } from "@/lib/api";
-import type { AnalyzeResponse } from "@/lib/types";
+import { analyzePlan, estimateFromModel } from "@/lib/api";
+import type {
+  AnalyzeResponse,
+  BuildingModel,
+  CostEstimate,
+  Confidence,
+} from "@/lib/types";
+import {
+  BuildingType,
+  StructuralSystem,
+  ExteriorWall,
+} from "@/lib/types";
 
 const US_STATES = [
   "AL","AK","AZ","AR","CA","CO","CT","DE","FL","GA",
@@ -23,6 +33,40 @@ const STAGES: Stage[] = [
   "Analyzing drawing",
   "Generating estimate",
 ];
+
+// Human-readable labels for enum values
+const BUILDING_TYPE_LABELS: Record<string, string> = {
+  [BuildingType.APARTMENT_LOW_RISE]: "Apartment (Low Rise)",
+  [BuildingType.APARTMENT_MID_RISE]: "Apartment (Mid Rise)",
+  [BuildingType.APARTMENT_HIGH_RISE]: "Apartment (High Rise)",
+  [BuildingType.OFFICE_LOW_RISE]: "Office (Low Rise)",
+  [BuildingType.OFFICE_MID_RISE]: "Office (Mid Rise)",
+  [BuildingType.OFFICE_HIGH_RISE]: "Office (High Rise)",
+  [BuildingType.RETAIL]: "Retail",
+  [BuildingType.WAREHOUSE]: "Warehouse",
+  [BuildingType.SCHOOL_ELEMENTARY]: "School (Elementary)",
+  [BuildingType.SCHOOL_HIGH]: "School (High)",
+  [BuildingType.HOSPITAL]: "Hospital",
+  [BuildingType.HOTEL]: "Hotel",
+};
+
+const STRUCTURAL_LABELS: Record<string, string> = {
+  [StructuralSystem.WOOD_FRAME]: "Wood Frame",
+  [StructuralSystem.STEEL_FRAME]: "Steel Frame",
+  [StructuralSystem.CONCRETE_FRAME]: "Concrete Frame",
+  [StructuralSystem.MASONRY_BEARING]: "Masonry Bearing",
+  [StructuralSystem.PRECAST_CONCRETE]: "Precast Concrete",
+};
+
+const EXTERIOR_LABELS: Record<string, string> = {
+  [ExteriorWall.BRICK_VENEER]: "Brick Veneer",
+  [ExteriorWall.CURTAIN_WALL]: "Curtain Wall",
+  [ExteriorWall.METAL_PANEL]: "Metal Panel",
+  [ExteriorWall.PRECAST_PANEL]: "Precast Panel",
+  [ExteriorWall.STUCCO]: "Stucco",
+  [ExteriorWall.WOOD_SIDING]: "Wood Siding",
+  [ExteriorWall.EIFS]: "EIFS",
+};
 
 export default function AnalyzePage() {
   // Form state
@@ -415,7 +459,35 @@ function ResultsView({
   fmt: (n: number) => string;
   fmtSf: (n: number) => string;
 }) {
-  const { estimate } = result;
+  const originalEstimate = result.estimate;
+
+  // Editable building model state
+  const [editedModel, setEditedModel] = useState<BuildingModel>(
+    () => structuredClone(result.building_model),
+  );
+  const [adjustedEstimate, setAdjustedEstimate] = useState<CostEstimate | null>(null);
+  const [showingAdjusted, setShowingAdjusted] = useState(false);
+  const [recalculating, setRecalculating] = useState(false);
+  const [recalcError, setRecalcError] = useState<string | null>(null);
+
+  // Track if model has been edited
+  const hasChanges = JSON.stringify(editedModel) !== JSON.stringify(result.building_model);
+
+  const estimate = showingAdjusted && adjustedEstimate ? adjustedEstimate : originalEstimate;
+
+  const handleRecalculate = useCallback(async () => {
+    setRecalculating(true);
+    setRecalcError(null);
+    try {
+      const newEstimate = await estimateFromModel(editedModel);
+      setAdjustedEstimate(newEstimate);
+      setShowingAdjusted(true);
+    } catch (err) {
+      setRecalcError(err instanceof Error ? err.message : "Recalculation failed.");
+    } finally {
+      setRecalculating(false);
+    }
+  }, [editedModel]);
 
   return (
     <section className="mt-12 space-y-6">
@@ -432,6 +504,33 @@ function ResultsView({
               {estimate.building_summary.location}
             </p>
           </div>
+          {/* Toggle between AI and adjusted */}
+          {adjustedEstimate && (
+            <div className="flex gap-1 rounded-md border border-[var(--color-navy-700)] bg-[var(--color-navy-800)] p-0.5">
+              <button
+                type="button"
+                onClick={() => setShowingAdjusted(false)}
+                className={`rounded px-3 py-1 text-xs font-medium transition-colors ${
+                  !showingAdjusted
+                    ? "bg-[var(--color-navy-600)] text-white"
+                    : "text-[var(--color-navy-400)] hover:text-white"
+                }`}
+              >
+                AI Estimate
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowingAdjusted(true)}
+                className={`rounded px-3 py-1 text-xs font-medium transition-colors ${
+                  showingAdjusted
+                    ? "bg-[var(--color-blueprint-500)] text-white"
+                    : "text-[var(--color-navy-400)] hover:text-white"
+                }`}
+              >
+                Adjusted
+              </button>
+            </div>
+          )}
         </div>
         {/* Total cost */}
         <div className="flex flex-wrap items-end gap-8">
@@ -461,6 +560,17 @@ function ResultsView({
           </div>
         </div>
       </div>
+
+      {/* Building Parameters (editable) */}
+      <BuildingParametersEditor
+        model={editedModel}
+        confidence={result.building_model.confidence}
+        onChange={setEditedModel}
+        hasChanges={hasChanges}
+        recalculating={recalculating}
+        recalcError={recalcError}
+        onRecalculate={handleRecalculate}
+      />
 
       {/* Division breakdown */}
       <div className="rounded-lg border border-[var(--color-navy-700)] bg-[var(--color-navy-900)] p-6">
@@ -574,6 +684,192 @@ function ResultsView({
         <span>Location Factor: {estimate.location_factor.toFixed(2)}</span>
       </div>
     </section>
+  );
+}
+
+// ── Building Parameters Editor ─────────────────────────────────────────────
+
+function BuildingParametersEditor({
+  model,
+  confidence,
+  onChange,
+  hasChanges,
+  recalculating,
+  recalcError,
+  onRecalculate,
+}: {
+  model: BuildingModel;
+  confidence: Record<string, Confidence>;
+  onChange: (m: BuildingModel) => void;
+  hasChanges: boolean;
+  recalculating: boolean;
+  recalcError: string | null;
+  onRecalculate: () => void;
+}) {
+  const update = (patch: Partial<BuildingModel>) => {
+    onChange({ ...model, ...patch });
+  };
+
+  const inputCls =
+    "w-full rounded-md border border-[var(--color-navy-700)] bg-[var(--color-navy-800)] px-3 py-2 text-sm text-white transition-colors focus:border-[var(--color-blueprint-500)] focus:outline-none";
+
+  return (
+    <div className="rounded-lg border border-[var(--color-navy-700)] bg-[var(--color-navy-900)] p-6">
+      <h3 className="mb-4 text-sm font-semibold uppercase tracking-wider text-[var(--color-navy-300)]">
+        Building Parameters
+      </h3>
+
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        {/* Building Type */}
+        <FieldWithConfidence label="Building Type" confidence={confidence.building_type}>
+          <select
+            value={model.building_type}
+            onChange={(e) => update({ building_type: e.target.value as BuildingType })}
+            className={inputCls}
+          >
+            {Object.values(BuildingType).map((v) => (
+              <option key={v} value={v}>
+                {BUILDING_TYPE_LABELS[v] ?? v}
+              </option>
+            ))}
+          </select>
+        </FieldWithConfidence>
+
+        {/* Gross SF */}
+        <FieldWithConfidence label="Gross SF" confidence={confidence.gross_sf}>
+          <input
+            type="number"
+            min={1}
+            value={model.gross_sf}
+            onChange={(e) => update({ gross_sf: Number(e.target.value) || 1 })}
+            className={inputCls}
+          />
+        </FieldWithConfidence>
+
+        {/* Stories */}
+        <FieldWithConfidence label="Stories" confidence={confidence.stories}>
+          <input
+            type="number"
+            min={1}
+            value={model.stories}
+            onChange={(e) => update({ stories: Number(e.target.value) || 1 })}
+            className={inputCls}
+          />
+        </FieldWithConfidence>
+
+        {/* Story Height */}
+        <FieldWithConfidence label="Story Height (ft)" confidence={confidence.story_height_ft}>
+          <input
+            type="number"
+            min={1}
+            step={0.5}
+            value={model.story_height_ft}
+            onChange={(e) => update({ story_height_ft: Number(e.target.value) || 1 })}
+            className={inputCls}
+          />
+        </FieldWithConfidence>
+
+        {/* Structural System */}
+        <FieldWithConfidence label="Structural System" confidence={confidence.structural_system}>
+          <select
+            value={model.structural_system}
+            onChange={(e) => update({ structural_system: e.target.value as StructuralSystem })}
+            className={inputCls}
+          >
+            {Object.values(StructuralSystem).map((v) => (
+              <option key={v} value={v}>
+                {STRUCTURAL_LABELS[v] ?? v}
+              </option>
+            ))}
+          </select>
+        </FieldWithConfidence>
+
+        {/* Exterior Wall */}
+        <FieldWithConfidence label="Exterior Wall" confidence={confidence.exterior_wall_system}>
+          <select
+            value={model.exterior_wall_system}
+            onChange={(e) => update({ exterior_wall_system: e.target.value as ExteriorWall })}
+            className={inputCls}
+          >
+            {Object.values(ExteriorWall).map((v) => (
+              <option key={v} value={v}>
+                {EXTERIOR_LABELS[v] ?? v}
+              </option>
+            ))}
+          </select>
+        </FieldWithConfidence>
+
+        {/* City */}
+        <FieldWithConfidence label="City" confidence={confidence.location}>
+          <input
+            type="text"
+            value={model.location.city}
+            onChange={(e) =>
+              update({ location: { ...model.location, city: e.target.value } })
+            }
+            className={inputCls}
+          />
+        </FieldWithConfidence>
+
+        {/* State */}
+        <FieldWithConfidence label="State" confidence={confidence.location}>
+          <select
+            value={model.location.state}
+            onChange={(e) =>
+              update({ location: { ...model.location, state: e.target.value } })
+            }
+            className={inputCls}
+          >
+            {US_STATES.map((s) => (
+              <option key={s} value={s}>
+                {s}
+              </option>
+            ))}
+          </select>
+        </FieldWithConfidence>
+      </div>
+
+      {/* Recalculate button + error */}
+      {hasChanges && (
+        <div className="mt-5 flex items-center gap-4">
+          <button
+            type="button"
+            onClick={onRecalculate}
+            disabled={recalculating}
+            className="rounded-md bg-[var(--color-blueprint-500)] px-5 py-2.5 text-sm font-bold text-white transition-all hover:bg-[var(--color-blueprint-400)] hover:shadow-lg disabled:opacity-50"
+          >
+            {recalculating ? "Recalculating..." : "Recalculate"}
+          </button>
+          {recalcError && (
+            <p className="text-sm text-red-400">{recalcError}</p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Field with confidence badge ────────────────────────────────────────────
+
+function FieldWithConfidence({
+  label,
+  confidence,
+  children,
+}: {
+  label: string;
+  confidence?: Confidence | string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div>
+      <div className="mb-1.5 flex items-center justify-between">
+        <label className="text-xs font-medium text-[var(--color-navy-400)]">
+          {label}
+        </label>
+        {confidence && <ConfidenceBadge confidence={confidence} />}
+      </div>
+      {children}
+    </div>
   );
 }
 

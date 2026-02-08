@@ -155,6 +155,7 @@ export interface AnalysisInfo {
 
 export interface AnalyzeResponse {
   estimate: CostEstimate;
+  building_model: BuildingModel;
   summary_dict: Record<string, string>;
   export_dict: Record<string, unknown>;
   analysis: AnalysisInfo;

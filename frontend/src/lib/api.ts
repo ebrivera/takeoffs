@@ -2,7 +2,7 @@
  * Typed fetch wrappers for the Cantena API.
  */
 
-import type { AnalyzeResponse } from "@/lib/types";
+import type { AnalyzeResponse, BuildingModel, CostEstimate } from "@/lib/types";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
@@ -36,4 +36,30 @@ export async function analyzePlan(
   }
 
   return (await res.json()) as AnalyzeResponse;
+}
+
+/**
+ * Recalculate a cost estimate from an edited BuildingModel.
+ *
+ * POSTs JSON to /api/estimate (no PDF, no VLM).
+ */
+export async function estimateFromModel(
+  building: BuildingModel,
+): Promise<CostEstimate> {
+  const res = await fetch(`${API_BASE}/api/estimate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(building),
+  });
+
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    const message =
+      body && typeof body === "object" && "detail" in body
+        ? String(body.detail)
+        : `Estimate failed (${res.status})`;
+    throw new Error(message);
+  }
+
+  return (await res.json()) as CostEstimate;
 }

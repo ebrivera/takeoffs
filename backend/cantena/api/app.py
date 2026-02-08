@@ -116,6 +116,9 @@ def create_app(
             estimate = result.estimate
             return {
                 "estimate": estimate.model_dump(mode="json"),
+                "building_model": result.analysis.building_model.model_dump(
+                    mode="json",
+                ),
                 "summary_dict": estimate.to_summary_dict(),
                 "export_dict": estimate.to_export_dict(),
                 "analysis": {

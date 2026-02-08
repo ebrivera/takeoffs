@@ -31,6 +31,9 @@
 - Pydantic models used as FastAPI request body params need `# noqa: TCH001` — FastAPI resolves annotations at runtime
 - `create_app(cost_engine=mock)` for testing /api/estimate — separate from pipeline injection
 - `CostEngine.estimate(building, project_name)` takes BuildingModel + project name, returns CostEstimate
+- `/api/analyze` response includes `building_model` field — full BuildingModel JSON for frontend parameter editing
+- `estimateFromModel(building)` in `api.ts` POSTs BuildingModel JSON to `/api/estimate` — no PDF/VLM needed
+- Use `structuredClone()` for deep-copying BuildingModel state in React (avoids mutation)
 
 ---
 
@@ -149,5 +152,21 @@
   - `CostEngine.estimate(building, project_name)` — the project_name can be derived from location fields when no explicit name is available
   - The `create_app` factory now accepts both `pipeline` and `cost_engine` for independent DI
   - `_get_cost_engine()` uses lazy initialization via `create_default_engine()` — no env vars needed for this endpoint
+---
+
+## 2026-02-07 - US-109
+- What was implemented: Parameter override UI — editable building parameters section with confidence badges, Recalculate button, toggle between AI estimate and adjusted estimate. Also added `building_model` to `/api/analyze` response and `estimateFromModel` API client function.
+- Files changed:
+  - `backend/cantena/api/app.py` — added `building_model` field to `/api/analyze` response (from VlmAnalysisResult)
+  - `frontend/src/lib/types.ts` — added `building_model: BuildingModel` to `AnalyzeResponse` interface
+  - `frontend/src/lib/api.ts` — added `estimateFromModel(building)` function POSTing to `/api/estimate`
+  - `frontend/src/app/analyze/page.tsx` — added `BuildingParametersEditor` component with editable dropdowns/inputs, `FieldWithConfidence` wrapper, recalculate logic, AI/Adjusted toggle, human-readable enum label maps
+- **Learnings for future iterations:**
+  - Backend `/api/analyze` must include `building_model` in response so frontend can populate editable fields — was added to `result.analysis.building_model.model_dump()`
+  - `structuredClone()` is the clean way to deep-copy BuildingModel for React state (avoids mutation of original)
+  - `JSON.stringify` comparison works for change detection on BuildingModel since field order is deterministic from API
+  - Enum label maps (`BUILDING_TYPE_LABELS`, `STRUCTURAL_LABELS`, `EXTERIOR_LABELS`) convert snake_case values to human-readable labels
+  - FieldWithConfidence wraps each editable field with label + confidence badge — keeps the grid layout clean
+  - Toggle between AI and adjusted estimates uses simple boolean state + conditional rendering
 ---
 

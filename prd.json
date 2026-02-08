@@ -185,7 +185,7 @@
         "Verify in browser using dev-browser skill"
       ],
       "priority": 9,
-      "passes": false,
+      "passes": true,
       "notes": "This is the human-in-the-loop feature. Deliberate Recalculate button (vs auto-update) because construction PMs want control. Depends on US-108 for the /api/estimate endpoint."
     },
     {
