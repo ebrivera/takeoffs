@@ -9,14 +9,6 @@ description = "Cost estimation engine for Cantena — takes a BuildingModel and 
 requires-python = ">=3.11"
 dependencies = [
     "pydantic>=2.0,<3.0",
-    "PyMuPDF>=1.24.0",
-    "Pillow>=10.0",
-    "anthropic>=0.39.0",
-    "fastapi>=0.109.0",
-    "uvicorn>=0.27.0",
-    "python-multipart>=0.0.6",
-    "python-dotenv>=1.0.0",
-    "shapely>=2.0.0",
 ]
 
 [project.optional-dependencies]
@@ -30,9 +22,6 @@ dev = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "--strict-markers -v"
-markers = [
-    "llm: tests requiring real Anthropic API calls (skipped without ANTHROPIC_API_KEY)",
-]
 
 [tool.mypy]
 strict = true
