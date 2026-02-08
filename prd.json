@@ -88,7 +88,7 @@
         "`ruff check cantena tests` passes"
       ],
       "priority": 5,
-      "passes": false,
+      "passes": true,
       "notes": "Geometry finds rooms; AI adds semantics; pricing uses room types. room_detection_method communicates trust level to the user/UI. Depends on US-404 (SpaceAssembler)."
     },
     {

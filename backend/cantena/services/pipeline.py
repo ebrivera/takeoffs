@@ -19,7 +19,9 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from cantena.engine import CostEngine
-    from cantena.models.estimate import CostEstimate
+    from cantena.geometry.measurement import PageMeasurements
+    from cantena.models.estimate import CostEstimate, SpaceCost
+    from cantena.models.space_program import SpaceProgram
     from cantena.services.hybrid_analyzer import (
         HybridAnalysisResult,
         HybridAnalyzer,
@@ -30,6 +32,7 @@ if TYPE_CHECKING:
         PdfProcessingResult,
         PdfProcessor,
     )
+    from cantena.services.space_assembler import SpaceAssembler
     from cantena.services.vlm_analyzer import VlmAnalysisResult, VlmAnalyzer
 
 logger = logging.getLogger(__name__)
@@ -52,6 +55,9 @@ class PipelineResult:
     merge_decisions: list[MergeDecision] | None = field(
         default=None
     )
+    space_program: SpaceProgram | None = None
+    space_breakdown: list[SpaceCost] | None = None
+    room_detection_method: str | None = None
 
 
 class AnalysisPipeline:
@@ -63,11 +69,13 @@ class AnalysisPipeline:
         vlm_analyzer: VlmAnalyzer,
         cost_engine: CostEngine,
         hybrid_analyzer: HybridAnalyzer | None = None,
+        space_assembler: SpaceAssembler | None = None,
     ) -> None:
         self._pdf_processor = pdf_processor
         self._vlm_analyzer = vlm_analyzer
         self._cost_engine = cost_engine
         self._hybrid_analyzer = hybrid_analyzer
+        self._space_assembler = space_assembler
 
     def analyze(
         self,
@@ -121,6 +129,7 @@ class AnalysisPipeline:
             geometry_available = False
             measurement_confidence = MeasurementConfidence.NONE
             merge_decisions: list[MergeDecision] | None = None
+            hybrid_result: HybridAnalysisResult | None = None
 
             use_hybrid = False
             if self._hybrid_analyzer is not None:
@@ -168,17 +177,64 @@ class AnalysisPipeline:
                     raise VlmAnalysisError(msg) from exc
                 building_model = analysis.building_model
 
-            # 4. Cost estimation
+            # 4. Assemble SpaceProgram (enhanced flow)
+            space_program: SpaceProgram | None = None
+            room_detection_method: str | None = None
+            geometry_measurements = (
+                hybrid_result.geometry_measurements
+                if hybrid_result is not None
+                else None
+            )
+
+            if (
+                self._space_assembler is not None
+                and geometry_measurements is not None
+            ):
+                try:
+                    space_program = self._space_assembler.assemble(
+                        geometry_measurements, building_model
+                    )
+                    # Reconcile area gap
+                    space_program = (
+                        self._space_assembler.reconcile_areas(
+                            space_program, building_model.gross_sf
+                        )
+                    )
+                    # Determine detection method
+                    room_detection_method = (
+                        self._determine_room_detection_method(
+                            geometry_measurements, space_program
+                        )
+                    )
+                except Exception:
+                    logger.warning(
+                        "SpaceAssembler failed; "
+                        "falling back to whole-building estimate",
+                        exc_info=True,
+                    )
+                    space_program = None
+                    room_detection_method = None
+
+            # 5. Cost estimation
             try:
                 estimate = self._cost_engine.estimate(
                     building=building_model,
                     project_name=project_name,
+                    space_program=space_program,
                 )
             except Exception as exc:
                 if isinstance(exc, CostEstimationError):
                     raise
                 msg = f"Cost estimation failed: {exc}"
                 raise CostEstimationError(msg) from exc
+
+            # If no assembler but VLM-only, set room_detection_method
+            if (
+                space_program is None
+                and room_detection_method is None
+                and not geometry_available
+            ):
+                room_detection_method = "assumed"
 
             elapsed = time.monotonic() - start
 
@@ -190,6 +246,9 @@ class AnalysisPipeline:
                 geometry_available=geometry_available,
                 measurement_confidence=measurement_confidence,
                 merge_decisions=merge_decisions,
+                space_program=space_program,
+                space_breakdown=estimate.space_breakdown,
+                room_detection_method=room_detection_method,
             )
 
         finally:
@@ -238,6 +297,27 @@ class AnalysisPipeline:
             return len(data.paths)
         finally:
             doc.close()
+
+    @staticmethod
+    def _determine_room_detection_method(
+        measurements: PageMeasurements,
+        program: SpaceProgram,
+    ) -> str:
+        """Determine how rooms were detected for this estimate."""
+        from cantena.models.space_program import SpaceSource
+
+        has_geometry = any(
+            s.source == SpaceSource.GEOMETRY for s in program.spaces
+        )
+        has_llm = any(
+            s.source == SpaceSource.LLM for s in program.spaces
+        )
+
+        if has_geometry:
+            return "polygonize"
+        if has_llm:
+            return "llm_only"
+        return "assumed"
 
     @staticmethod
     def _select_best_page(
