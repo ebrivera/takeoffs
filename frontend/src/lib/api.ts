@@ -2,7 +2,7 @@
  * Typed fetch wrappers for the Cantena API.
  */
 
-import type { AnalyzeResponse, BuildingModel, CostEstimate, SpaceCost } from "@/lib/types";
+import type { AnalyzeResponse, BuildingModel, CostEstimate, SpaceProgramPayload } from "@/lib/types";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
@@ -46,7 +46,7 @@ export async function analyzePlan(
  */
 export async function estimateFromModel(
   building: BuildingModel,
-  spaceProgram?: { spaces: SpaceCost[]; building_type: string } | null,
+  spaceProgram?: SpaceProgramPayload | null,
 ): Promise<CostEstimate> {
   const res = await fetch(`${API_BASE}/api/estimate`, {
     method: "POST",

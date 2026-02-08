@@ -58,6 +58,43 @@ export enum FireProtection {
   SPRINKLER_COMBINED = "sprinkler_combined",
 }
 
+export enum RoomType {
+  LIVING_ROOM = "living_room",
+  KITCHEN = "kitchen",
+  DINING = "dining",
+  BEDROOM = "bedroom",
+  BATHROOM = "bathroom",
+  RESTROOM = "restroom",
+  WC = "wc",
+  UTILITY = "utility",
+  LAUNDRY = "laundry",
+  CLOSET = "closet",
+  PORCH = "porch",
+  LOBBY = "lobby",
+  OPEN_OFFICE = "open_office",
+  PRIVATE_OFFICE = "private_office",
+  CONFERENCE = "conference",
+  CORRIDOR = "corridor",
+  KITCHEN_BREAK = "kitchen_break",
+  MECHANICAL_ROOM = "mechanical_room",
+  STORAGE = "storage",
+  RETAIL_SALES = "retail_sales",
+  CLASSROOM = "classroom",
+  LAB = "lab",
+  PATIENT_ROOM = "patient_room",
+  OPERATING_ROOM = "operating_room",
+  WAREHOUSE_STORAGE = "warehouse_storage",
+  LOADING_DOCK = "loading_dock",
+  COMMON_AREA = "common_area",
+  STAIRWELL_ELEVATOR = "stairwell_elevator",
+  PARKING = "parking",
+  GARAGE = "garage",
+  ENTRY = "entry",
+  FOYER = "foyer",
+  HALLWAY = "hallway",
+  OTHER = "other",
+}
+
 export enum Confidence {
   HIGH = "high",
   MEDIUM = "medium",
@@ -142,6 +179,20 @@ export interface SpaceCost {
   total_cost: CostRange;
   percent_of_total: number;
   source: string;
+}
+
+export interface SpacePayload {
+  room_type: string;
+  name: string;
+  area_sf: number;
+  count: number;
+  source: string;
+  confidence: string;
+}
+
+export interface SpaceProgramPayload {
+  spaces: SpacePayload[];
+  building_type: string;
 }
 
 export interface CostEstimate {
