@@ -7,6 +7,8 @@
 - Shapely 2.x needs `types-shapely` pip package for mypy stubs — `convex_hull` returns `BaseGeometry`, must `isinstance(hull, Polygon)` before `.exterior`
 - HybridAnalyzer in `cantena/services/hybrid_analyzer.py`: HybridAnalyzer, HybridAnalysisResult, MergeDecision, MergeSource — merges geometry PageMeasurements with VLM VlmAnalysisResult
 - Pipeline uses HybridAnalyzer when >50 vector paths detected (constant `_VECTOR_PATH_THRESHOLD` in pipeline.py) — falls back to VLM-only otherwise
+- FastAPI endpoints returning non-JSON (e.g. PNG) need `response_model=None` decorator param — use `Response` or `JSONResponse` return types
+- Debug endpoints use `APIRouter(prefix="/api/debug")` registered via `app.include_router()` in create_app
 - `AnalyzeResponse` type in `types.ts` wraps the full backend response (estimate + analysis + metadata)
 - Tailwind v4 uses `@theme inline` and CSS custom properties — reference with `var(--color-navy-xxx)` in className
 - Python 3.11+ with pydantic v2 for domain models
@@ -305,5 +307,22 @@
   - `patch.object(AnalysisPipeline, "_count_vector_paths", return_value=100)` is the cleanest way to test hybrid vs VLM-only branching — avoids needing real PDF files in tests
   - Frozen dataclass with mutable default (list) needs `field(default=None)` not `field(default_factory=list)` when None is the no-data sentinel
   - HybridAnalysisResult import needed in TYPE_CHECKING block for return type annotation in `_run_hybrid_analysis`
+---
+
+## 2026-02-07 - US-307
+- What was implemented: Geometry debug visualization endpoint — POST /api/debug/geometry accepts PDF upload, runs full geometry pipeline (vector extraction, scale detection, wall detection, measurement), renders base PDF page as image with Pillow overlays (detected walls in red, outer boundary polygon in blue, info badge with area/scale/confidence), and returns either raw PNG or JSON with base64 PNG + measurement data.
+- Files changed:
+  - `backend/cantena/api/debug.py` — new file: APIRouter with POST /api/debug/geometry endpoint, _draw_info_badge helper for Pillow overlays, _measurements_to_dict for JSON serialization
+  - `backend/cantena/api/app.py` — registered debug router via app.include_router(debug_router)
+  - `backend/tests/test_debug_geometry.py` — 5 tests: PNG response for valid PDF (200 + PNG magic bytes), PNG response for empty geometry, JSON includes measurements with all expected fields, JSON wall segments have proper structure, non-PDF returns 400
+  - `prd.json` — US-307 passes: true
+- **Learnings for future iterations:**
+  - FastAPI cannot handle `Response | dict[str, Any]` union return type — use `response_model=None` decorator param and always return `Response` (use `JSONResponse` for JSON output)
+  - Pillow `ImageFont`/`ImageDraw` imports inside endpoint function are not visible to module-level helpers — use deferred `from PIL import ImageFont` inside the helper, or use `Any` type hint
+  - `tempfile.NamedTemporaryFile` with `delete=False` triggers ruff SIM115 — use `with` context manager then access file by path after context exits
+  - PyMuPDF `page.get_pixmap(matrix=fitz.Matrix(zoom, zoom))` renders PDF page at custom DPI — zoom=2.0 gives 144 DPI
+  - `Image.frombytes("RGB", (pix.width, pix.height), pix.samples)` converts PyMuPDF Pixmap to Pillow Image for overlay drawing
+  - APIRouter with `prefix="/api/debug"` keeps debug endpoints organized and separate from main API routes
+  - `dataclasses.asdict(stats)` works for converting frozen dataclasses to JSON-serializable dicts, but BoundingRect with nested fields needs the dict to be serializable (asdict handles it recursively)
 ---
 

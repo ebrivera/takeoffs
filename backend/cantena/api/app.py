@@ -54,6 +54,11 @@ def create_app(
         allow_headers=["*"],
     )
 
+    # Register debug router
+    from cantena.api.debug import router as debug_router
+
+    app.include_router(debug_router)
+
     # Store on app state so tests can inject mocks
     app.state.pipeline = pipeline
     app.state.cost_engine = cost_engine

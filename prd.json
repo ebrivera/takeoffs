@@ -159,7 +159,7 @@
         "Typecheck passes"
       ],
       "priority": 7,
-      "passes": false,
+      "passes": true,
       "notes": "Depends on US-304. Essential for tuning wall detection heuristics. Upload a real construction PDF, see what geometry engine detected overlaid on the drawing. Also becomes a powerful demo tool. Pillow added to dependencies."
     }
   ]
