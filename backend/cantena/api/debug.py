@@ -86,44 +86,56 @@ async def debug_geometry(
         pix: fitz.Pixmap = page.get_pixmap(matrix=mat)
         base_img = Image.frombytes(
             "RGB", (pix.width, pix.height), pix.samples,
-        )
+        ).convert("RGBA")
 
-        # Draw overlays with Pillow
-        draw = ImageDraw.Draw(base_img)
+        # Create a transparent overlay for semi-transparent fills
+        overlay = Image.new("RGBA", base_img.size, (0, 0, 0, 0))
+        draw = ImageDraw.Draw(overlay)
 
-        # Draw detected walls in red
+        # Draw room polygons if available
+        if measurements.rooms:
+            _draw_room_overlays(draw, measurements.rooms, zoom)
+        else:
+            # Fallback: draw outer boundary in blue (no rooms detected)
+            if wall_analysis.outer_boundary:
+                boundary_pts = [
+                    (p.x * zoom, p.y * zoom)
+                    for p in wall_analysis.outer_boundary
+                ]
+                if len(boundary_pts) >= 3:
+                    draw.polygon(
+                        boundary_pts,
+                        outline=(0, 0, 255, 255),
+                        width=2,
+                    )
+
+        # Composite overlay onto base image
+        base_img = Image.alpha_composite(base_img, overlay)
+
+        # Draw walls and info badge on the composited image
+        draw_final = ImageDraw.Draw(base_img)
+
+        # Draw detected walls in red (on top of room fills)
         for seg in wall_analysis.segments:
             x1 = seg.start.x * zoom
             y1 = seg.start.y * zoom
             x2 = seg.end.x * zoom
             y2 = seg.end.y * zoom
-            draw.line(
+            draw_final.line(
                 [(x1, y1), (x2, y2)],
-                fill=(255, 0, 0),
+                fill=(255, 0, 0, 255),
                 width=3,
             )
 
-        # Draw outer boundary in blue
-        if wall_analysis.outer_boundary:
-            boundary_pts = [
-                (p.x * zoom, p.y * zoom)
-                for p in wall_analysis.outer_boundary
-            ]
-            if len(boundary_pts) >= 3:
-                draw.polygon(
-                    boundary_pts,
-                    outline=(0, 0, 255),
-                    width=2,
-                )
-
         # Add text overlay: area, scale, confidence
-        _draw_info_badge(draw, measurements, base_img.width)
+        _draw_info_badge(draw_final, measurements, base_img.width)
 
         doc.close()
 
-        # Encode PNG
+        # Encode PNG (convert back to RGB for smaller file size)
+        final_img = base_img.convert("RGB")
         png_buf = io.BytesIO()
-        base_img.save(png_buf, format="PNG")
+        final_img.save(png_buf, format="PNG")
         png_bytes = png_buf.getvalue()
 
         # Build JSON measurements
@@ -150,6 +162,70 @@ async def debug_geometry(
         tmp_path = Path(tmp.name)
         if tmp_path.exists():
             tmp_path.unlink()
+
+
+# Semi-transparent room fill colors (R, G, B, A).
+_ROOM_COLORS: list[tuple[int, int, int, int]] = [
+    (0, 180, 255, 60),    # cyan
+    (255, 180, 0, 60),    # amber
+    (0, 220, 80, 60),     # green
+    (200, 80, 255, 60),   # purple
+    (255, 80, 80, 60),    # red
+    (80, 200, 200, 60),   # teal
+    (255, 200, 80, 60),   # gold
+    (150, 150, 255, 60),  # periwinkle
+]
+
+_GRAY_FILL: tuple[int, int, int, int] = (160, 160, 160, 60)
+
+
+def _draw_room_overlays(
+    draw: Any,
+    rooms: list[Any],
+    zoom: float,
+) -> None:
+    """Draw semi-transparent room polygon fills with labels and areas."""
+    from PIL import ImageFont
+
+    try:
+        font = ImageFont.load_default(size=12)
+    except TypeError:
+        font = ImageFont.load_default()
+
+    for room in rooms:
+        scaled_pts = [
+            (x * zoom, y * zoom) for x, y in room.polygon_pts
+        ]
+        if len(scaled_pts) < 3:
+            continue
+
+        # Choose fill color
+        if room.label is not None:
+            color_idx = room.room_index % len(_ROOM_COLORS)
+            fill = _ROOM_COLORS[color_idx]
+        else:
+            fill = _GRAY_FILL
+
+        draw.polygon(scaled_pts, fill=fill, outline=fill[:3])
+
+        # Draw label at centroid
+        cx = room.centroid.x * zoom
+        cy = room.centroid.y * zoom
+
+        label_text = room.label if room.label is not None else "?"
+        area_text = (
+            f"{room.area_sf:,.0f} SF" if room.area_sf is not None else ""
+        )
+
+        draw.text((cx, cy), label_text, fill=(0, 0, 0), font=font, anchor="mm")
+        if area_text:
+            draw.text(
+                (cx, cy + 14),
+                area_text,
+                fill=(0, 0, 0),
+                font=font,
+                anchor="mm",
+            )
 
 
 def _draw_info_badge(
@@ -252,7 +328,46 @@ def _measurements_to_dict(
 
     stats_dict = asdict(stats)
 
-    return {
+    # Serialize detected rooms
+    rooms_list: list[dict[str, Any]] = []
+    if measurements.rooms:
+        for room in measurements.rooms:
+            rooms_list.append({
+                "room_index": room.room_index,
+                "label": room.label,
+                "area_sf": room.area_sf,
+                "perimeter_lf": room.perimeter_lf,
+                "polygon_vertices": [
+                    {"x": x, "y": y} for x, y in room.polygon_pts
+                ],
+                "centroid": {
+                    "x": room.centroid.x,
+                    "y": room.centroid.y,
+                },
+            })
+
+    # Serialize LLM interpretation if available
+    llm_dict: dict[str, Any] | None = None
+    if measurements.llm_interpretation is not None:
+        interp = measurements.llm_interpretation
+        llm_dict = {
+            "building_type": interp.building_type,
+            "structural_system": interp.structural_system,
+            "rooms": [
+                {
+                    "room_index": r.room_index,
+                    "confirmed_label": r.confirmed_label,
+                    "room_type_enum": r.room_type_enum,
+                    "notes": r.notes,
+                }
+                for r in interp.rooms
+            ],
+            "special_conditions": interp.special_conditions,
+            "measurement_flags": interp.measurement_flags,
+            "confidence_notes": interp.confidence_notes,
+        }
+
+    result: dict[str, Any] = {
         "scale": scale_dict,
         "gross_area_sf": measurements.gross_area_sf,
         "building_perimeter_lf": measurements.building_perimeter_lf,
@@ -261,4 +376,10 @@ def _measurements_to_dict(
         "confidence": measurements.confidence.value,
         "wall_segments": wall_segments,
         "stats": stats_dict,
+        "rooms": rooms_list,
     }
+
+    if llm_dict is not None:
+        result["llm_interpretation"] = llm_dict
+
+    return result

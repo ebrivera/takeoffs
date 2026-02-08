@@ -18,6 +18,7 @@
 - `VerificationSource` is a `Literal` type alias, not an enum (keeps it simple for dataclass field)
 - Register custom pytest marks (e.g., `llm`) in `pyproject.toml` under `[tool.pytest.ini_options]` markers — `--strict-markers` enforces this
 - LLM integration tests: `_get_api_key()` helper + `pytest.skip()` for missing API key; catch 429 with `pytest.skip("Rate limited")`
+- PIL semi-transparent overlays: convert to RGBA, draw on separate `Image.new("RGBA")` overlay, `Image.alpha_composite()`, then convert back to RGB for PNG
 
 ---
 
@@ -219,5 +220,19 @@
   - Page rendering for vision input: `page.get_pixmap(matrix=fitz.Matrix(2.0, 2.0))` gives 144 DPI; save to temp PNG with `.save(tmp.name)`
   - `fitz` module import for runtime use (Matrix, get_pixmap) must be inside the test function body to avoid import errors in TYPE_CHECKING-only environments
   - The `_build_service()` helper pattern keeps test methods clean while allowing all tests to create fresh service instances with LLM+verifier enabled
+---
+
+## 2026-02-08 - US-377
+- What was implemented: Enhanced debug visualization endpoint (`POST /api/debug/geometry`) to overlay detected room polygons with semi-transparent color fills, room labels at centroids, and area annotations. Extended JSON response with `rooms[]` array (room_index, label, area_sf, perimeter_lf, polygon_vertices, centroid) and optional `llm_interpretation` object. Uses RGBA alpha compositing for semi-transparent room fills — 8 distinct colors for labeled rooms, gray for unlabeled rooms (shown as "?" + area). Backward compatible: if no rooms detected, falls back to existing wall/boundary overlay.
+- Files changed:
+  - `backend/cantena/api/debug.py` — added `_draw_room_overlays()` function with semi-transparent polygon fills (RGBA alpha composite), room label text at centroids, area SF below labels; added `_ROOM_COLORS` and `_GRAY_FILL` constants; updated `_measurements_to_dict()` to include `rooms[]` with polygon_vertices/centroid and optional `llm_interpretation`; refactored overlay rendering to use RGBA overlay + alpha_composite + final RGB conversion
+  - `backend/tests/test_debug_rooms.py` — new file: 5 tests across 2 test classes (TestDebugRoomsPngOverlay: room pixels tinted, no-rooms fallback; TestDebugRoomsJson: rooms array structure, empty rooms, backward-compatible fields)
+  - `prd.json` — US-377 passes: true
+- **Learnings for future iterations:**
+  - PIL `ImageDraw.Draw(img).polygon(fill=rgba)` requires RGBA image mode — convert base from RGB to RGBA, draw on separate overlay, then `Image.alpha_composite()` to merge
+  - Convert back to RGB before saving PNG to avoid inflated file sizes from unnecessary alpha channel
+  - `draw.text(anchor="mm")` centers text at the given point (middle-middle) — useful for room labels at centroids
+  - Synthetic test PDFs with two adjacent rooms (rectangle split by dividing wall) reliably produce polygonize rooms for testing
+  - Pixel sampling in tests: multiply room centroid coords by zoom factor to find the pixel position in the output PNG
 ---
 

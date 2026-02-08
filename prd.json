@@ -149,7 +149,7 @@
         "Typecheck passes"
       ],
       "priority": 8,
-      "passes": false,
+      "passes": true,
       "notes": "This becomes the best tuning + demo artifact: 'here is what we detected' directly on the drawing."
     }
   ]
