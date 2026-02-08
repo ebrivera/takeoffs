@@ -72,6 +72,58 @@ class FireProtection(StrEnum):
     SPRINKLER_COMBINED = "sprinkler_combined"
 
 
+class RoomType(StrEnum):
+    """Room types for room-level cost differentiation."""
+
+    # Residential
+    LIVING_ROOM = "living_room"
+    KITCHEN = "kitchen"
+    DINING = "dining"
+    BEDROOM = "bedroom"
+    BATHROOM = "bathroom"
+    RESTROOM = "restroom"
+    WC = "wc"
+    UTILITY = "utility"
+    LAUNDRY = "laundry"
+    CLOSET = "closet"
+    PORCH = "porch"
+
+    # Commercial / shared
+    LOBBY = "lobby"
+    OPEN_OFFICE = "open_office"
+    PRIVATE_OFFICE = "private_office"
+    CONFERENCE = "conference"
+    CORRIDOR = "corridor"
+    KITCHEN_BREAK = "kitchen_break"
+    MECHANICAL_ROOM = "mechanical_room"
+    STORAGE = "storage"
+    RETAIL_SALES = "retail_sales"
+
+    # Education
+    CLASSROOM = "classroom"
+    LAB = "lab"
+
+    # Healthcare
+    PATIENT_ROOM = "patient_room"
+    OPERATING_ROOM = "operating_room"
+
+    # Industrial / warehouse
+    WAREHOUSE_STORAGE = "warehouse_storage"
+    LOADING_DOCK = "loading_dock"
+
+    # Common / circulation
+    COMMON_AREA = "common_area"
+    STAIRWELL_ELEVATOR = "stairwell_elevator"
+    PARKING = "parking"
+    GARAGE = "garage"
+    ENTRY = "entry"
+    FOYER = "foyer"
+    HALLWAY = "hallway"
+
+    # Fallback
+    OTHER = "other"
+
+
 class Confidence(StrEnum):
     """Confidence level for extracted/assumed field values."""
 

@@ -13,6 +13,7 @@ from cantena.data.csi_divisions import DIVISION_BREAKDOWNS
 
 if TYPE_CHECKING:
     from cantena.data.building_costs import SquareFootCostEntry
+    from cantena.data.room_costs import RoomTypeCost
     from cantena.models.enums import BuildingType, ExteriorWall, StructuralSystem
 
 
@@ -167,3 +168,16 @@ class CostDataRepository:
             return state_index
 
         return DEFAULT_COST_INDEX
+
+    def get_room_type_costs(
+        self, building_type: BuildingType
+    ) -> list[RoomTypeCost]:
+        """Get room-type-level cost data for a building type.
+
+        Returns residential costs for residential building types,
+        commercial for commercial, etc.  Always includes an OTHER
+        fallback entry.
+        """
+        from cantena.data.room_costs import get_room_costs_for_building_type
+
+        return get_room_costs_for_building_type(building_type)

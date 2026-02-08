@@ -1,156 +1,148 @@
 {
-  "project": "cantena-geometry-llm-enhanced",
-  "branchName": "ralph/geometry-llm-enhanced",
-  "description": "Enhances the geometry engine with polygonize-based room polygon reconstruction, endpoint snapping, room label matching, LLM-assisted geometry interpretation, and scale verification safety rail.",
+  "project": "cantena-enhanced-cost-intelligence",
+  "branchName": "ralph/enhanced-cost-intelligence",
+  "description": "Upgrades the cost engine from building-type-level lookup to assembly-level estimation using room-type awareness and geometry-detected room polygons for granular per-room cost estimates.",
   "userStories": [
     {
-      "id": "US-371",
-      "title": "Endpoint snapping: close near-miss gaps in wall segments",
-      "description": "As a developer, I want wall segment endpoints that are within a small tolerance of each other to be snapped together so that Shapely polygonize() can form closed room polygons from wall lines that have tiny CAD-export gaps.",
+      "id": "US-401",
+      "title": "Room-type cost differentiation data",
+      "description": "As a developer, I want cost data that differentiates between room types within a building (lobby vs. open office vs. kitchen vs. bathroom vs. corridor) so that the estimate reflects actual cost variation across different spaces rather than applying a single $/SF rate to the whole building.",
       "acceptanceCriteria": [
-        "cantena/geometry/snap.py defines snap_endpoints(segments: list[WallSegment], tolerance_pts: float = 3.0) -> list[WallSegment]",
-        "Function collects all unique endpoints, finds clusters within tolerance_pts, replaces each cluster with its centroid, returns new WallSegment objects with snapped endpoints",
-        "Clustering uses simple O(n^2) pairwise distance check; document KDTree upgrade path if needed",
-        "Helper snap_to_grid(point: Point2D, grid_size_pts: float = 1.0) -> Point2D rounds coordinates to nearest grid point",
-        "After snapping, duplicate segments (same start/end after snapping) are removed",
-        "Tests in tests/test_snap.py: endpoints 2pts apart snap together; endpoints 5pts apart do NOT snap; duplicate segments removed; grid snapping rounds correctly; empty input returns empty; exactly matching endpoints unchanged",
-        "mypy --strict passes",
-        "Typecheck passes"
+        "`RoomType` StrEnum added to `cantena/models/enums.py` with values: LIVING_ROOM, KITCHEN, DINING, BEDROOM, BATHROOM, RESTROOM, WC, UTILITY, LAUNDRY, CLOSET, PORCH, LOBBY, OPEN_OFFICE, PRIVATE_OFFICE, CONFERENCE, CORRIDOR, KITCHEN_BREAK, MECHANICAL_ROOM, STORAGE, RETAIL_SALES, CLASSROOM, LAB, PATIENT_ROOM, OPERATING_ROOM, WAREHOUSE_STORAGE, LOADING_DOCK, COMMON_AREA, STAIRWELL_ELEVATOR, PARKING, GARAGE, ENTRY, FOYER, HALLWAY, OTHER",
+        "`cantena/data/room_costs.py` defines `RoomTypeCost` Pydantic model with fields: room_type (RoomType), building_context (BuildingType), base_cost_per_sf (CostRange), typical_percent_of_building (float), cost_drivers (list[str]), notes (str)",
+        "Seed data covers at least 10 residential room types (living room $180-250, kitchen $250-350, bathroom $300-450, bedroom $150-220, dining $170-240, utility $100-160, laundry $120-180, porch $80-130, garage $60-100, closet $100-150) and 6 office types (lobby $300-400, open office $200-280, corridor $150-200, restroom $350-500, conference $250-350, mechanical $120-180) plus school (classroom $250-350, corridor $180-220) and hospital (patient room $400-600, operating room $800-1200)",
+        "`CostDataRepository` extended with `get_room_type_costs(building_type: BuildingType) -> list[RoomTypeCost]` — residential types return residential costs, commercial returns commercial, fallback to OTHER at generic rate",
+        "Tests in `tests/test_room_costs.py`: office building has >= 5 room types; residential has >= 6 room types; kitchen > utility in cost; typical percentages sum to 90-110%; all room types have non-empty cost_drivers; unknown room type falls back to OTHER",
+        "`mypy --strict` passes",
+        "`ruff check cantena tests` passes"
       ],
       "priority": 1,
       "passes": true,
-      "notes": "polygonize() needs exact endpoint equality. Snapping within a small tolerance fixes CAD-export floating-point gaps without meaningfully distorting geometry."
+      "notes": "RoomType includes both residential and commercial room types because PRD 3.75 detects rooms on any drawing. Kitchens cost more than bedrooms due to cabinets/counters/plumbing/appliances; bathrooms due to fixtures/tile/plumbing density."
     },
     {
-      "id": "US-372",
-      "title": "Room polygon reconstruction via Shapely polygonize",
-      "description": "As a developer, I want to reconstruct enclosed room polygons from wall segments using Shapely's polygonize() so that I can compute individual room areas instead of relying on convex hull.",
+      "id": "US-402",
+      "title": "Space program model with DetectedRoom bridge",
+      "description": "As a developer, I want a SpaceProgram model that can be populated from three sources — (1) PRD 3.75 DetectedRoom polygons (highest accuracy), (2) LLM interpretation room breakdown, or (3) default distribution from BuildingModel — so that the cost engine always has a room-by-room program to price, regardless of how much geometry data is available.",
       "acceptanceCriteria": [
-        "cantena/geometry/rooms.py defines RoomDetector class",
-        "RoomDetector.detect_rooms(segments, scale) snaps endpoints (US-371), extends wall segments slightly at endpoints (by 1pt), converts to Shapely LineStrings, unions linework with unary_union, calls polygonize(), filters tiny polygons (<100 sq pts) and page boundary polygons (>80% of page area), returns RoomAnalysis",
-        "RoomAnalysis model (frozen dataclass): rooms list, total_area_pts, total_area_sf (if scale), room_count, outer_boundary_polygon, polygonize_success",
-        "DetectedRoom model (frozen dataclass): polygon_pts, area_pts, area_sf, perimeter_pts, perimeter_lf, centroid, label, room_index",
-        "If polygonize() produces 0 rooms, fall back to convex hull; set polygonize_success=False",
-        "Tests in tests/test_rooms.py: rectangle -> 1 room with correct area; two adjacent rooms -> 2 polygons; small gaps (2pts) snapped -> still produces rooms; non-closing segments -> fallback hull; tiny artifacts filtered; area converts to SF when scale provided",
-        "mypy --strict passes",
-        "Typecheck passes"
+        "`cantena/models/space_program.py` defines `SpaceProgram` Pydantic model with: spaces (list[Space]), building_type (BuildingType), total_area_sf computed property summing all spaces",
+        "`Space` model has: room_type (RoomType), name (str), area_sf (float), count (int, default 1), source (SpaceSource enum: GEOMETRY | LLM | ASSUMED | USER_OVERRIDE), confidence (Confidence)",
+        "`SpaceProgram.from_detected_rooms(rooms: list[DetectedRoom], building_type: BuildingType) -> SpaceProgram` maps DetectedRoom.label to RoomType via LABEL_TO_ROOM_TYPE dict (LIVING ROOM->LIVING_ROOM, KITCHEN->KITCHEN, WC->WC, UTILITY->UTILITY, DINING->DINING, LAUNDRY->LAUNDRY, COATS->CLOSET, FRONT PORCH->PORCH, BACK PORCH->PORCH). Unlabeled/unmapped labels => RoomType.OTHER. source=GEOMETRY for all.",
+        "`SpaceProgram.from_llm_interpretation(interp: LlmInterpretation, total_area_sf: float, building_type: BuildingType) -> SpaceProgram` maps LlmRoomInterpretation.room_type_enum to RoomType, source=LLM",
+        "`SpaceProgram.from_building_model(model: BuildingModel) -> SpaceProgram` distributes gross SF across room types using typical_percent_of_building from room cost data, source=ASSUMED",
+        "`SpaceProgram.update_space(index, area_sf=None, room_type=None, name=None)` changes source to USER_OVERRIDE on the affected Space",
+        "Tests in `tests/test_space_program.py`: from_detected_rooms with 3 labeled rooms produces 3 Spaces with GEOMETRY source; maps 'LIVING ROOM'->LIVING_ROOM, 'WC'->WC, 'COATS'->CLOSET; from_building_model generates reasonable residential distribution; from_llm_interpretation maps LLM room types correctly; total_area_sf sums correctly; update_space changes source to USER_OVERRIDE; unlabeled DetectedRoom maps to OTHER",
+        "`mypy --strict` passes",
+        "`ruff check cantena tests` passes"
       ],
       "priority": 2,
-      "passes": true,
-      "notes": "This is the main accuracy upgrade vs convex hull, especially on drawings with porches / recesses / dead space."
+      "passes": false,
+      "notes": "This is the bridge between PRD 3.75 (DetectedRoom polygons) and room pricing. The mapping handles label variance (e.g., 'WC' vs 'BATHROOM', 'COATS' as closet). SpaceSource has four values: GEOMETRY, LLM, ASSUMED, USER_OVERRIDE. Depends on US-401 for RoomType enum."
     },
     {
-      "id": "US-373",
-      "title": "Room label matching: associate text labels with detected room polygons",
-      "description": "As a developer, I want to associate room name labels (text blocks like 'LIVING ROOM') with detected room polygons so each room has a name without needing the LLM.",
+      "id": "US-403",
+      "title": "Room-type-aware cost engine",
+      "description": "As a developer, I want the CostEngine to optionally accept a SpaceProgram and price each room type separately so estimates reflect cost variation across spaces.",
       "acceptanceCriteria": [
-        "cantena/geometry/rooms.py extended with RoomDetector.label_rooms(rooms: RoomAnalysis, text_blocks: list[TextBlock]) -> RoomAnalysis",
-        "Match text blocks against curated list of common room names (case-insensitive): LIVING ROOM, KITCHEN, DINING, BEDROOM, BATHROOM, RESTROOM, WC, UTILITY, LAUNDRY, CORRIDOR, HALLWAY, CLOSET, STORAGE, OFFICE, CONFERENCE, LOBBY, ENTRY, FOYER, GARAGE, PORCH, DECK, MECHANICAL, etc.",
-        "For matched labels: find polygon containing text position (Point.within(Polygon)); if none contains, assign to nearest centroid within 50pts",
-        "Handle edge cases: multiple labels in one room (use first/most prominent); label outside all rooms (assign nearest); duplicate labels (append index: BEDROOM 1, BEDROOM 2)",
-        "Tests in tests/test_room_labels.py: label inside polygon assigns correctly; label outside assigns to nearest; non-room text ignored; unlabeled rooms remain None; duplicate names get indexed",
-        "mypy --strict passes",
-        "Typecheck passes"
+        "`CostEngine.estimate` accepts optional `space_program: SpaceProgram | None` parameter",
+        "When space_program is provided: each Space priced using its room-type-specific $/SF from RoomTypeCost data; location factor and complexity multipliers still apply per-room; total cost is sum of room costs; CSI division breakdown computed by weighted average of room-type breakdowns; if room type has no specific cost data (OTHER/unmapped), fall back to whole-building $/SF",
+        "When space_program is None: existing whole-building behavior preserved unchanged",
+        "`CostEstimate` extended with `space_breakdown: list[SpaceCost] | None`",
+        "`SpaceCost` model in estimate.py with fields: room_type (str), name (str), area_sf (float), cost_per_sf (CostRange), total_cost (CostRange), percent_of_total (float), source (str: 'geometry'|'llm'|'assumed'|'user_override')",
+        "Tests in `tests/test_engine_rooms.py`: residential SpaceProgram kitchen priced higher per SF than utility; office lobby most expensive vs open office/corridor; sum of space_breakdown costs matches total_cost within 1%; without SpaceProgram existing behavior unchanged; RoomType.OTHER falls back to whole-building rate; SpaceCost.source populated correctly from Space.source",
+        "`mypy --strict` passes",
+        "`ruff check cantena tests` passes"
       ],
       "priority": 3,
-      "passes": true,
-      "notes": "This is 'no-AI room naming' using spatial containment + a curated vocabulary."
+      "passes": false,
+      "notes": "SpaceCost includes a source field so frontend can show where each room came from. Unmapped rooms must not break pricing. Depends on US-401 (room cost data) and US-402 (SpaceProgram model)."
     },
     {
-      "id": "US-374",
-      "title": "LLM-assisted geometry interpretation service",
-      "description": "As a developer, I want an LLM service that takes extracted geometry data (rooms, measurements, text) and the PDF page image, and uses Claude to produce richer semantic analysis and a structured SpaceProgram.",
+      "id": "US-404",
+      "title": "SpaceProgram assembly: merge geometry rooms with LLM enrichment",
+      "description": "As a developer, I want a service that assembles the best possible SpaceProgram by merging geometry-detected rooms with LLM interpretation, filling gaps and resolving conflicts.",
       "acceptanceCriteria": [
-        "cantena/services/llm_geometry_interpreter.py defines LlmGeometryInterpreter taking an API key in constructor",
-        "LlmGeometryInterpreter.interpret(geometry_summary: GeometrySummary, page_image_path: Path | None = None) -> LlmInterpretation sends structured data to Claude and parses structured JSON output",
-        "GeometrySummary (frozen dataclass): scale_notation, scale_factor, total_area_sf, rooms (list[RoomSummary]), all_text_blocks, wall_count, measurement_confidence",
-        "RoomSummary model: room_index, label, area_sf, perimeter_lf",
-        "LlmInterpretation model: building_type, structural_system, rooms (list[LlmRoomInterpretation]), special_conditions, measurement_flags, confidence_notes",
-        "LlmRoomInterpretation model: room_index, confirmed_label, room_type_enum, notes",
-        "If page_image_path provided, send as vision input; timeout 30s; if API call fails, return default LlmInterpretation with UNKNOWN fields",
-        "Uses Anthropic SDK directly (not VlmAnalyzer)",
-        "Tests in tests/test_llm_geometry_interpreter.py: mocked API JSON parsed correctly; malformed response -> default fallback; timeout -> default fallback; GeometrySummary serializes correctly",
-        "mypy --strict passes",
-        "Typecheck passes"
+        "`cantena/services/space_assembler.py` defines `SpaceAssembler` class",
+        "`SpaceAssembler.assemble(page_measurements: PageMeasurements, building_model: BuildingModel) -> SpaceProgram` uses priority: (1) if page_measurements.rooms exists and has labeled rooms use SpaceProgram.from_detected_rooms(), (2) else if page_measurements.llm_interpretation has room data use SpaceProgram.from_llm_interpretation(), (3) else fallback SpaceProgram.from_building_model()",
+        "When using from_detected_rooms, also consult llm_interpretation to: re-classify unlabeled rooms, add missing rooms (LLM-only spaces if geometry missed them), flag anomalies (e.g., WC far too large)",
+        "`SpaceAssembler.reconcile_areas(program: SpaceProgram, expected_total_sf: float) -> SpaceProgram` — if detected room sum differs from expected total, add an Unaccounted Space of type OTHER for the gap; rooms are not scaled, gap is explicit",
+        "Tests in `tests/test_space_assembler.py`: geometry rooms available uses from_detected_rooms; no geometry but LLM available uses from_llm_interpretation; neither available uses from_building_model; unlabeled geometry rooms get LLM-suggested labels; area gap creates Unaccounted space; anomaly flagging for oversized WC",
+        "`mypy --strict` passes",
+        "`ruff check cantena tests` passes"
       ],
       "priority": 4,
-      "passes": true,
-      "notes": "LLM validates/enriches computed geometry rather than guessing measurements from pixels."
+      "passes": false,
+      "notes": "Assembly layer: geometry-first, LLM fills gaps/flags issues, assumed distribution is last resort. The area-gap policy avoids silently 'making the numbers match.' Depends on US-402 (SpaceProgram) and US-403 (CostEngine room awareness)."
     },
     {
-      "id": "US-378",
-      "title": "Scale verification safety rail via LLM (linchpin protection)",
-      "description": "As a developer, I want scale detection to be verified (and optionally recovered) via an LLM-assisted check so that a brittle title-block parse or unreliable dimension inference cannot silently produce massively wrong areas (scale^2 error).",
+      "id": "US-405",
+      "title": "Full enhanced pipeline: geometry rooms + LLM enrichment + room-type costing",
+      "description": "As a developer, I want the full pipeline to chain geometry room detection → LLM interpretation → SpaceProgram assembly → room-type-aware cost engine so that /api/analyze produces per-room estimates from actual drawing measurements.",
       "acceptanceCriteria": [
-        "cantena/geometry/scale_verify.py defines ScaleVerifier with verify_or_recover_scale(page, detected, text_blocks) -> ScaleVerificationResult",
-        "ScaleVerificationResult model: scale (ScaleResult | None), verification_source (Literal['DETERMINISTIC', 'LLM_CONFIRMED', 'LLM_RECOVERED', 'UNVERIFIED']), warnings (list[str]), llm_raw_notation (str | None)",
-        "LLM inputs are narrow: title-block region text, candidate scale strings, optionally a crop image of the title block",
-        "LLM request asks for strict JSON: notation, paper_inches, real_inches, scale_factor, confidence (HIGH|MEDIUM|LOW)",
-        "Decision logic: HIGH detected + LLM agrees ±5% -> LLM_CONFIRMED; LOW/MEDIUM/None detected + LLM HIGH/MEDIUM -> LLM_RECOVERED; LLM disagrees >10% -> keep detected with warning; dimension-based inference treated as unreliable unless corroborated",
-        "If API key missing or LLM fails/timeouts/429: return UNVERIFIED and proceed with best deterministic scale",
-        "Unit tests in tests/test_scale_verify.py (mocked API): deterministic HIGH + LLM agrees -> confirmed; deterministic None + LLM recovers -> recovered; disagreement emits warning; timeout/429 returns UNVERIFIED",
-        "Opt-in integration test in tests/integration/test_first_floor_scale_llm.py: skip if ANTHROPIC_API_KEY missing; assert LLM-verifier returns ~48.0 (±2) for first-floor.pdf",
-        "mypy --strict passes",
-        "Typecheck passes"
+        "`AnalysisPipeline` updated to use enhanced flow when PRD 3.75 components are available: (1) process PDF to images, (2) extract geometry with room polygons and labels, (3) run LLM interpretation if API key available, (4) assemble SpaceProgram via SpaceAssembler, (5) run CostEngine with SpaceProgram, (6) return enhanced PipelineResult",
+        "`PipelineResult` extended with: space_program (SpaceProgram | None), space_breakdown (list[SpaceCost] | None), room_detection_method (str: 'polygonize' | 'llm_only' | 'assumed' | None)",
+        "`/api/analyze` response includes space_breakdown when available (name, type, area, cost/SF, total cost, percent, source)",
+        "Backward compatible: scanned PDF/no geometry → VLM-only + assumed SpaceProgram; geometry but no LLM key → geometry rooms + label matching only; full system → geometry + LLM enrichment + room-type costing",
+        "Tests in `tests/test_enhanced_pipeline.py`: enhanced flow with mocks returns SpaceProgram with room_detection_method='polygonize'; fallback without geometry returns room_detection_method='assumed'; API response includes space_breakdown; space costs sum to total_cost; backward compatible pipeline without SpaceAssembler still works",
+        "`mypy --strict` passes",
+        "`ruff check cantena tests` passes"
       ],
       "priority": 5,
-      "passes": true,
-      "notes": "This makes scale robust without 'AI-everything.' The LLM is a guardrail and recovery tool for the one place where being wrong explodes downstream."
+      "passes": false,
+      "notes": "Geometry finds rooms; AI adds semantics; pricing uses room types. room_detection_method communicates trust level to the user/UI. Depends on US-404 (SpaceAssembler)."
     },
     {
-      "id": "US-375",
-      "title": "Update MeasurementService to use room-based area computation",
-      "description": "As a developer, I want MeasurementService to use polygonize-based RoomDetector for area computation and optionally run LLM enrichment so PageMeasurements includes per-room data and improved total area.",
+      "id": "US-406",
+      "title": "Backend: POST /api/estimate with SpaceProgram support",
+      "description": "As a developer, I want the POST /api/estimate endpoint to accept an optional SpaceProgram JSON body so the frontend can send user-edited room programs for recalculation.",
       "acceptanceCriteria": [
-        "MeasurementService (cantena/geometry/measurement.py) updated: measure() uses RoomDetector.detect_rooms() for area computation instead of (or in addition to) convex hull",
-        "PageMeasurements extended: rooms (list[DetectedRoom] | None), room_count, polygonize_success, llm_interpretation (LlmInterpretation | None), scale_verification (ScaleVerificationResult | None)",
-        "MeasurementService constructor takes optional llm_interpreter: LlmGeometryInterpreter | None and optional scale_verifier: ScaleVerifier | None",
-        "Area computation priority: 1) sum polygonized room areas (HIGH), 2) convex hull (MEDIUM), 3) page-size estimate (LOW)",
-        "Confidence reflects which area method + whether scale was verified/confirmed",
-        "Backward compatible: existing tests still pass; room fields additive",
-        "Tests in tests/test_measurement_rooms.py: rooms included when polygonize works; polygonized total closer than convex hull on synthetic examples; fallback to convex hull when polygonize fails; room_count + polygonize_success set correctly; without LLM interpreter llm_interpretation=None; with ScaleVerifier mocked scale_verification is populated",
-        "mypy --strict passes",
-        "Typecheck passes"
+        "`POST /api/estimate` accepts optional `space_program` field in request body as SpaceProgram JSON",
+        "When space_program is provided, CostEngine uses room-type-aware pricing and returns space_breakdown in response",
+        "When space_program is omitted, existing behavior preserved (whole-building estimate)",
+        "Response schema updated to include space_breakdown array when available",
+        "Tests: /api/estimate with SpaceProgram body returns room-type-aware estimate with space_breakdown; without SpaceProgram body returns standard estimate",
+        "`mypy --strict` passes",
+        "`ruff check cantena tests` passes"
       ],
       "priority": 6,
-      "passes": true,
-      "notes": "The core measurement improvement is room-sum area. Scale verification feeds into confidence and reduces 'silent wrong' outcomes."
+      "passes": false,
+      "notes": "Split from original US-406. This is the backend endpoint needed before the frontend can send recalculation requests. Depends on US-403 (room-type-aware engine)."
     },
     {
-      "id": "US-376",
-      "title": "Real API integration tests on first-floor.pdf",
-      "description": "As a developer, I want integration tests that run the enhanced pipeline (geometry + room detection + LLM interpretation) on first-floor.pdf using real API calls, so I can validate the end-to-end system beyond mocks.",
+      "id": "US-407",
+      "title": "Frontend: space breakdown display table",
+      "description": "As a PM reviewing an estimate, I want to see cost broken down by room type with clear source indicators so I can understand how each space contributes to the total cost.",
       "acceptanceCriteria": [
-        "tests/integration/test_first_floor_llm.py contains real API tests (NOT mocks); mark tests with @pytest.mark.llm; skip if ANTHROPIC_API_KEY missing",
-        "Assert scale_verification.verification_source != 'UNVERIFIED' when ANTHROPIC_API_KEY is set",
-        "test_llm_room_interpretation: run pipeline, send to LlmGeometryInterpreter with real API; assert non-default interpretation, building_type is residential, structural_system mentions wood frame or similar, >=3 rooms have confirmed labels, special_conditions mentions at least one of woodstove/chimney/hardwood/brick",
-        "test_llm_with_image: also send rendered page image; assert response returned and is equal/better in richness",
-        "test_full_pipeline_accuracy: total area from polygonized rooms in [400, 600] SF (~512 expected); >=4 named rooms; scale factor ~48 ±5; LLM identifies residential",
-        "test_room_area_improvement_over_convex_hull: assert polygonize total is closer to 512 than convex hull total",
-        "test_measurement_report_with_rooms: generate test_results/first-floor-enhanced-report.md with per-room breakdown + LLM summary",
-        "Rate limits: if 429, pytest.skip rather than fail",
-        "Typecheck passes"
+        "Results UI updated: new 'Space Program' section between building parameters and CSI division breakdown",
+        "Space Program table columns: room name, room type, area (SF), cost/SF (range), total cost, percent of total — sorted by cost descending",
+        "Source indicators per row: tape-measure icon for GEOMETRY, brain icon for LLM, dashed-circle icon for ASSUMED, pencil icon for USER_OVERRIDE — with tooltip explaining source",
+        "If no rooms detected (space_breakdown null), Space Program section shows fallback message + assumed distribution table",
+        "TypeScript types updated in lib/types.ts to include SpaceCost and space_breakdown in AnalyzeResponse",
+        "`npm run typecheck` passes",
+        "`npm run lint` passes",
+        "Verify in browser using dev-browser skill"
       ],
       "priority": 7,
-      "passes": true,
-      "notes": "The definitive proof: polygonize improves accuracy on a real plan, and the LLM enriches without being required for measurement."
+      "passes": false,
+      "notes": "Split from original US-406. The key UX trust signal is the GEOMETRY ('tape-measure') indicator: it means measured from the drawing, not guessed. Depends on US-405 (pipeline returns space_breakdown) and US-406 (estimate endpoint)."
     },
     {
-      "id": "US-377",
-      "title": "Enhanced debug visualization with room polygons and labels",
-      "description": "As a developer, I want the debug visualization endpoint to show detected room polygons with labels and areas overlaid on the drawing.",
+      "id": "US-408",
+      "title": "Frontend: room-level editing and recalculation",
+      "description": "As a PM reviewing an estimate, I want to adjust room areas and types and recalculate so I can validate and refine the AI-detected space program.",
       "acceptanceCriteria": [
-        "POST /api/debug/geometry updated: overlay includes each room polygon semi-transparent fill (different per room), room label centered, room area (SF) below label, unlabeled rooms shown in gray with '?' + area",
-        "JSON response extended: rooms[] with room_index, label, area_sf, perimeter_lf, polygon vertices, centroid coords",
-        "If LLM interpretation available, include llm_interpretation in JSON",
-        "Backward compatible: if no rooms detected, keep existing wall overlay",
-        "Tests in tests/test_debug_rooms.py: room-detectable PDF returns rooms in JSON; PNG overlay modifies pixels in room areas; without rooms existing wall overlay works",
-        "mypy --strict passes",
-        "Typecheck passes"
+        "Room area editable via number input in each row of the Space Program table",
+        "Room type changeable via dropdown populated from RoomType enum values",
+        "Users can add new rooms (row with empty fields) and remove existing rooms (delete button per row)",
+        "Editing any room changes its source indicator to USER_OVERRIDE (pencil icon)",
+        "'Recalculate' button sends updated SpaceProgram + BuildingModel to POST /api/estimate and refreshes the estimate display",
+        "`npm run typecheck` passes",
+        "`npm run lint` passes",
+        "Verify in browser using dev-browser skill"
       ],
       "priority": 8,
-      "passes": true,
-      "notes": "This becomes the best tuning + demo artifact: 'here is what we detected' directly on the drawing."
+      "passes": false,
+      "notes": "Split from original US-406. This adds interactivity on top of the display table from US-407. Depends on US-406 (estimate endpoint accepts SpaceProgram) and US-407 (display table exists)."
     }
   ]
 }

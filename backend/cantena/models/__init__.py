@@ -8,6 +8,7 @@ from cantena.models.enums import (
     ExteriorWall,
     FireProtection,
     MechanicalSystem,
+    RoomType,
     StructuralSystem,
 )
 from cantena.models.estimate import (
@@ -35,5 +36,6 @@ __all__ = [
     "FireProtection",
     "Location",
     "MechanicalSystem",
+    "RoomType",
     "StructuralSystem",
 ]
