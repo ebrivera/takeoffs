@@ -73,7 +73,7 @@
         "Typecheck passes"
       ],
       "priority": 3,
-      "passes": false,
+      "passes": true,
       "notes": "Depends on US-301 DrawingData model and US-302 TextBlock model. Wall detection from vector data uses lineweight conventions: architects use heavy lineweight for walls (0.50mm or 0.70mm) and light for dimensions (0.13mm). Shapely handles polygon operations and area calculation."
     },
     {

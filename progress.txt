@@ -3,7 +3,8 @@
 - PyMuPDF `get_drawings()` "re" items have 3 elements: `("re", Rect, orientation_flag)` — check `len(item) >= 2` not `== 2`
 - PyMuPDF drawing dict values are typed `object` — use `isinstance(raw, (int, float))` guard before `float()` for mypy strict
 - Geometry models use frozen dataclasses (not Pydantic) for internal service types — consistent with pipeline.py pattern
-- `cantena/geometry/` package: `extractor.py` (VectorExtractor, DrawingData, VectorPath, Point2D, BoundingRect, PathType), `scale.py` (ScaleDetector, ScaleResult, TextBlock, Confidence, parse_dimension_string)
+- `cantena/geometry/` package: `extractor.py` (VectorExtractor, DrawingData, VectorPath, Point2D, BoundingRect, PathType), `scale.py` (ScaleDetector, ScaleResult, TextBlock, Confidence, parse_dimension_string), `walls.py` (WallDetector, WallSegment, WallAnalysis, Orientation)
+- Shapely 2.x needs `types-shapely` pip package for mypy stubs — `convex_hull` returns `BaseGeometry`, must `isinstance(hull, Polygon)` before `.exterior`
 - `AnalyzeResponse` type in `types.ts` wraps the full backend response (estimate + analysis + metadata)
 - Tailwind v4 uses `@theme inline` and CSS custom properties — reference with `var(--color-navy-xxx)` in className
 - Python 3.11+ with pydantic v2 for domain models
@@ -240,5 +241,21 @@
   - `re.VERBOSE` flag allows readable multi-line regex patterns with inline comments
   - `fullmatch` vs `finditer`: use fullmatch for dimension strings (exact match), finditer for scale notations (embedded in text)
   - Deferred import of `PathType` inside `detect_from_dimensions` to avoid circular imports
+---
+
+## 2026-02-07 - US-303
+- What was implemented: Wall detection and room boundary identification — WallDetector class with heuristic wall filtering (stroke width, orientation, color), parallel line pair detection for wall thickness, Shapely-based convex hull area computation, and outer boundary detection.
+- Files changed:
+  - `backend/pyproject.toml` — added `shapely>=2.0.0` dependency
+  - `backend/cantena/geometry/walls.py` — new file: WallDetector, WallSegment, WallAnalysis, Orientation models, wall filtering heuristics, parallel pair detection, Shapely-based area computation
+  - `backend/tests/test_walls.py` — 11 tests across 5 test classes (TestThickVsThinLines, TestParallelWallPairs, TestEnclosedArea, TestEmptyAnalysis, TestOrientation)
+  - `prd.json` — US-303 passes: true
+- **Learnings for future iterations:**
+  - Shapely 2.x has type stubs (`types-shapely` pip package) — no `# type: ignore[import-untyped]` needed, but stubs must be installed separately
+  - `MultiPoint.convex_hull` returns `BaseGeometry` — must use `isinstance(hull, Polygon)` check before accessing `.exterior` for mypy strict
+  - Wall detection heuristic: stroke width >= 1.0 pts (~0.5mm), H/V orientation within ±2°, dark colors (RGB sum <= 1.0)
+  - Parallel line pair detection uses perpendicular distance between midpoint and line — gap 2–20 pts range for wall thickness
+  - `statistics.median()` for wall thickness from detected parallel pairs
+  - Deferred shapely imports inside methods to avoid circular imports and keep module lightweight
 ---
 
