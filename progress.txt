@@ -1,3 +1,31 @@
+## Codebase Patterns
+- All source files use `from __future__ import annotations`
+- Frozen dataclasses for immutable models (`@dataclass(frozen=True)`)
+- `StrEnum` for string-based enumerations (not `(str, Enum)`)
+- `TYPE_CHECKING` block for expensive imports (fitz, etc.)
+- `Point2D` and `BoundingRect` from `cantena.geometry.extractor`
+- `WallSegment` and `WallAnalysis` from `cantena.geometry.walls`
+- `TextBlock` and `ScaleResult` from `cantena.geometry.scale`
+- Union-find clustering for endpoint snapping (O(n²) pairwise, KDTree upgrade path documented)
+- mypy runs slow on first invocation — use `--no-incremental` if it hangs
+- Use `.venv/bin/ruff` and `.venv/bin/mypy` directly (not `python3 -m`)
+
+---
+
+## 2026-02-08 - US-371
+- What was implemented: Endpoint snapping module `cantena/geometry/snap.py` with `snap_endpoints()` and `snap_to_grid()` functions. Uses union-find clustering to snap wall segment endpoints within a configurable tolerance (default 3.0 pts), replacing each cluster with its centroid. Removes duplicate segments after snapping. Includes `snap_to_grid()` helper for rounding to grid points.
+- Files changed:
+  - `backend/cantena/geometry/snap.py` — new module: `snap_endpoints(segments, tolerance_pts)`, `snap_to_grid(point, grid_size_pts)`, `_cluster_endpoints()` with union-find, `_reclassify_orientation()`, `_distance()` helper
+  - `backend/tests/test_snap.py` — 13 tests: 8 in TestSnapEndpoints (within/outside tolerance, duplicate removal, empty input, exact match, thickness preservation, length recompute, three-way cluster) + 5 in TestSnapToGrid (nearest grid, unchanged, half-round, custom/large grid sizes)
+  - `prd.json` — US-371 passes: true
+- **Learnings for future iterations:**
+  - Unused imports (e.g., `dataclass` if not used in file) trigger ruff F401 — check before committing
+  - mypy `--no-incremental` flag needed when mypy hangs on first run
+  - Union-find with path compression is simple and effective for endpoint clustering
+  - Orientation is reclassified after snapping since endpoint movement can change angle
+  - Duplicate detection uses canonical (min, max) pair keys for order-independence
+---
+
 ## 2026-02-08 - US-351
 - What was implemented: Integration test fixtures and smoke tests for first-floor.pdf — conftest.py with `first_floor_pdf` and `first_floor_page` fixtures, ground truth constants, and smoke test file verifying PDF loads, page count, dimensions, and text content.
 - Files changed:
@@ -95,5 +123,19 @@
   - `datetime.UTC` alias required (not `timezone.utc`) per ruff UP017
   - Report-generation test always passes (diagnostic tool) but must assert file creation
   - Threshold tests are separate from the report test to clearly distinguish pass/fail assertions from diagnostic output
+---
+
+## 2026-02-08 - US-372
+- What was implemented: Room polygon reconstruction via Shapely polygonize in `cantena/geometry/rooms.py`. `RoomDetector` class with `detect_rooms()` method that snaps endpoints (US-371), extends segments by 1pt, converts to Shapely LineStrings, unions linework, calls `polygonize()`, filters tiny artifacts (<100 sq pts) and page boundary polygons (>80% page area), and falls back to convex hull if polygonize produces 0 rooms. Includes `DetectedRoom` and `RoomAnalysis` frozen dataclasses with area/perimeter conversion to SF/LF when scale provided.
+- Files changed:
+  - `backend/cantena/geometry/rooms.py` — new module: `RoomDetector.detect_rooms()`, `DetectedRoom` (frozen dataclass), `RoomAnalysis` (frozen dataclass), `_extend_segment()`, `_polygon_to_detected_room()`, `_convex_hull_fallback()`
+  - `backend/tests/test_rooms.py` — 18 tests across 8 test classes: TestDetectRoomsSingleRectangle (4), TestDetectRoomsTwoAdjacent (2), TestSmallGapsSnapped (1), TestNonClosingFallback (1), TestTinyArtifactsFiltered (1), TestEmptyInput (2), TestPageBoundaryFilter (1), TestRoomAnalysisModel (6)
+  - `prd.json` — US-372 passes: true
+- **Learnings for future iterations:**
+  - Shapely's `polygonize()` requires exact endpoint equality — snapping (US-371) + segment extension (1pt) ensures overlapping linework for polygon formation
+  - Deferred Shapely imports inside methods (`from shapely.geometry import ...`) to avoid circular imports and keep TYPE_CHECKING clean
+  - Area conversion: `area_sf = area_pts / (72^2) * scale_factor^2 / 144`; Perimeter: `perimeter_lf = perimeter_pts / 72 * scale_factor / 12`
+  - `_convex_hull_fallback()` returns `polygonize_success=False` so downstream code can distinguish accurate room-based area from approximate hull area
+  - `unary_union(lines)` before `polygonize()` is essential — it nodes intersections so polygonize can find closed loops
 ---
 
