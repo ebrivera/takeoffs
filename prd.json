@@ -141,7 +141,7 @@
         "Verify in browser using dev-browser skill"
       ],
       "priority": 8,
-      "passes": false,
+      "passes": true,
       "notes": "Split from original US-406. This adds interactivity on top of the display table from US-407. Depends on US-406 (estimate endpoint accepts SpaceProgram) and US-407 (display table exists)."
     }
   ]

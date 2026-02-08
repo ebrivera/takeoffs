@@ -9,9 +9,12 @@ import type {
   CostEstimate,
   Confidence,
   SpaceCost,
+  SpaceProgramPayload,
+  SpacePayload,
 } from "@/lib/types";
 import {
   BuildingType,
+  RoomType,
   StructuralSystem,
   ExteriorWall,
 } from "@/lib/types";
@@ -607,6 +610,11 @@ function ResultsView({
       <SpaceProgramSection
         spaceBreakdown={spaceBreakdown}
         roomDetectionMethod={result.room_detection_method}
+        buildingModel={editedModel}
+        onRecalculated={(newEstimate) => {
+          setAdjustedEstimate(newEstimate);
+          setShowingAdjusted(true);
+        }}
         fmt={fmt}
         fmtSf={fmtSf}
       />
@@ -837,16 +845,51 @@ function formatRoomType(roomType: string): string {
   return ROOM_TYPE_LABELS[roomType] ?? roomType.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
+// ── Editable room row type ──────────────────────────────────────────────────
+
+interface EditableRoom {
+  name: string;
+  room_type: string;
+  area_sf: number;
+  source: string;
+  confidence: string;
+}
+
+function spaceCostToEditable(space: SpaceCost): EditableRoom {
+  return {
+    name: space.name,
+    room_type: space.room_type,
+    area_sf: space.area_sf,
+    source: space.source,
+    confidence: space.source === "geometry" ? "high" : space.source === "llm" ? "medium" : "low",
+  };
+}
+
+function editableToPayload(room: EditableRoom): SpacePayload {
+  return {
+    room_type: room.room_type,
+    name: room.name,
+    area_sf: room.area_sf,
+    count: 1,
+    source: room.source,
+    confidence: room.confidence,
+  };
+}
+
 // ── Space Program Section ──────────────────────────────────────────────────
 
 function SpaceProgramSection({
   spaceBreakdown,
   roomDetectionMethod,
+  buildingModel,
+  onRecalculated,
   fmt,
   fmtSf,
 }: {
   spaceBreakdown: SpaceCost[] | null;
   roomDetectionMethod?: string;
+  buildingModel: BuildingModel;
+  onRecalculated: (estimate: CostEstimate) => void;
   fmt: (n: number) => string;
   fmtSf: (n: number) => string;
 }) {
@@ -856,6 +899,67 @@ function SpaceProgramSection({
       : roomDetectionMethod === "llm_only"
         ? "AI-interpreted rooms"
         : "Assumed distribution";
+
+  // Editable room state — initialized from spaceBreakdown
+  const [editableRooms, setEditableRooms] = useState<EditableRoom[]>(() =>
+    spaceBreakdown ? spaceBreakdown.map(spaceCostToEditable) : [],
+  );
+  const [hasEdits, setHasEdits] = useState(false);
+  const [recalculating, setRecalculating] = useState(false);
+  const [recalcError, setRecalcError] = useState<string | null>(null);
+
+  const inputCls =
+    "w-full rounded border border-[var(--color-navy-700)] bg-[var(--color-navy-800)] px-2 py-1.5 text-sm text-white transition-colors focus:border-[var(--color-blueprint-500)] focus:outline-none";
+
+  const updateRoom = (index: number, patch: Partial<EditableRoom>) => {
+    setEditableRooms((prev) =>
+      prev.map((r, i) =>
+        i === index ? { ...r, ...patch, source: "user_override" } : r,
+      ),
+    );
+    setHasEdits(true);
+  };
+
+  const addRoom = () => {
+    setEditableRooms((prev) => [
+      ...prev,
+      {
+        name: "",
+        room_type: RoomType.OTHER,
+        area_sf: 0,
+        source: "user_override",
+        confidence: "low",
+      },
+    ]);
+    setHasEdits(true);
+  };
+
+  const removeRoom = (index: number) => {
+    setEditableRooms((prev) => prev.filter((_, i) => i !== index));
+    setHasEdits(true);
+  };
+
+  const handleRecalculate = async () => {
+    setRecalculating(true);
+    setRecalcError(null);
+    try {
+      const spaceProgram: SpaceProgramPayload = {
+        spaces: editableRooms.map(editableToPayload),
+        building_type: buildingModel.building_type,
+      };
+      const newEstimate = await estimateFromModel(buildingModel, spaceProgram);
+      onRecalculated(newEstimate);
+      // Update editable rooms from new breakdown
+      if (newEstimate.space_breakdown) {
+        setEditableRooms(newEstimate.space_breakdown.map(spaceCostToEditable));
+      }
+      setHasEdits(false);
+    } catch (err) {
+      setRecalcError(err instanceof Error ? err.message : "Recalculation failed.");
+    } finally {
+      setRecalculating(false);
+    }
+  };
 
   return (
     <div className="rounded-lg border border-[var(--color-navy-700)] bg-[var(--color-navy-900)] p-6">
@@ -871,67 +975,137 @@ function SpaceProgramSection({
       </div>
 
       {spaceBreakdown && spaceBreakdown.length > 0 ? (
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm">
-            <thead>
-              <tr className="border-b border-[var(--color-navy-700)]">
-                <th className="pb-2 pr-4 font-mono text-xs font-medium uppercase tracking-wider text-[var(--color-navy-500)]">
-                  Room
-                </th>
-                <th className="pb-2 pr-4 font-mono text-xs font-medium uppercase tracking-wider text-[var(--color-navy-500)]">
-                  Type
-                </th>
-                <th className="pb-2 pr-4 text-right font-mono text-xs font-medium uppercase tracking-wider text-[var(--color-navy-500)]">
-                  Area (SF)
-                </th>
-                <th className="pb-2 pr-4 text-right font-mono text-xs font-medium uppercase tracking-wider text-[var(--color-navy-500)]">
-                  $/SF
-                </th>
-                <th className="pb-2 pr-4 text-right font-mono text-xs font-medium uppercase tracking-wider text-[var(--color-navy-500)]">
-                  Total
-                </th>
-                <th className="pb-2 pr-4 text-right font-mono text-xs font-medium uppercase tracking-wider text-[var(--color-navy-500)]">
-                  %
-                </th>
-                <th className="pb-2 text-center font-mono text-xs font-medium uppercase tracking-wider text-[var(--color-navy-500)]">
-                  Src
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {[...spaceBreakdown]
-                .sort((a, b) => b.total_cost.expected - a.total_cost.expected)
-                .map((space, i) => (
-                  <tr
-                    key={`${space.name}-${i}`}
-                    className="border-b border-[var(--color-navy-700)]/50"
-                  >
-                    <td className="py-2.5 pr-4 text-[var(--color-navy-200)]">
-                      {space.name}
-                    </td>
-                    <td className="py-2.5 pr-4 text-[var(--color-navy-400)]">
-                      {formatRoomType(space.room_type)}
-                    </td>
-                    <td className="py-2.5 pr-4 text-right font-mono text-white">
-                      {Math.round(space.area_sf).toLocaleString()}
-                    </td>
-                    <td className="py-2.5 pr-4 text-right font-mono text-[var(--color-navy-300)]">
-                      {fmtSf(space.cost_per_sf.expected)}
-                    </td>
-                    <td className="py-2.5 pr-4 text-right font-mono text-white">
-                      {fmt(space.total_cost.expected)}
-                    </td>
-                    <td className="py-2.5 pr-4 text-right font-mono text-[var(--color-navy-400)]">
-                      {space.percent_of_total.toFixed(1)}%
-                    </td>
-                    <td className="py-2.5 text-center">
-                      <SourceIcon source={space.source} />
-                    </td>
-                  </tr>
-                ))}
-            </tbody>
-          </table>
-        </div>
+        <>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-sm">
+              <thead>
+                <tr className="border-b border-[var(--color-navy-700)]">
+                  <th className="pb-2 pr-4 font-mono text-xs font-medium uppercase tracking-wider text-[var(--color-navy-500)]">
+                    Room
+                  </th>
+                  <th className="pb-2 pr-4 font-mono text-xs font-medium uppercase tracking-wider text-[var(--color-navy-500)]">
+                    Type
+                  </th>
+                  <th className="pb-2 pr-4 text-right font-mono text-xs font-medium uppercase tracking-wider text-[var(--color-navy-500)]">
+                    Area (SF)
+                  </th>
+                  <th className="pb-2 pr-4 text-right font-mono text-xs font-medium uppercase tracking-wider text-[var(--color-navy-500)]">
+                    $/SF
+                  </th>
+                  <th className="pb-2 pr-4 text-right font-mono text-xs font-medium uppercase tracking-wider text-[var(--color-navy-500)]">
+                    Total
+                  </th>
+                  <th className="pb-2 pr-4 text-right font-mono text-xs font-medium uppercase tracking-wider text-[var(--color-navy-500)]">
+                    %
+                  </th>
+                  <th className="pb-2 text-center font-mono text-xs font-medium uppercase tracking-wider text-[var(--color-navy-500)]">
+                    Src
+                  </th>
+                  <th className="pb-2 text-center font-mono text-xs font-medium uppercase tracking-wider text-[var(--color-navy-500)]">
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {editableRooms.map((room, i) => {
+                  // Find matching cost data from the original breakdown
+                  const costData = spaceBreakdown[i] as SpaceCost | undefined;
+                  return (
+                    <tr
+                      key={i}
+                      className="border-b border-[var(--color-navy-700)]/50"
+                    >
+                      <td className="py-2 pr-4">
+                        <input
+                          type="text"
+                          value={room.name}
+                          onChange={(e) => updateRoom(i, { name: e.target.value })}
+                          className={inputCls}
+                          style={{ minWidth: "100px" }}
+                        />
+                      </td>
+                      <td className="py-2 pr-4">
+                        <select
+                          value={room.room_type}
+                          onChange={(e) => updateRoom(i, { room_type: e.target.value })}
+                          className={inputCls}
+                          style={{ minWidth: "120px" }}
+                        >
+                          {Object.values(RoomType).map((rt) => (
+                            <option key={rt} value={rt}>
+                              {formatRoomType(rt)}
+                            </option>
+                          ))}
+                        </select>
+                      </td>
+                      <td className="py-2 pr-4 text-right">
+                        <input
+                          type="number"
+                          min={0}
+                          step={1}
+                          value={room.area_sf}
+                          onChange={(e) => updateRoom(i, { area_sf: Number(e.target.value) || 0 })}
+                          className={`${inputCls} text-right font-mono`}
+                          style={{ width: "90px" }}
+                        />
+                      </td>
+                      <td className="py-2.5 pr-4 text-right font-mono text-[var(--color-navy-300)]">
+                        {costData ? fmtSf(costData.cost_per_sf.expected) : "—"}
+                      </td>
+                      <td className="py-2.5 pr-4 text-right font-mono text-white">
+                        {costData ? fmt(costData.total_cost.expected) : "—"}
+                      </td>
+                      <td className="py-2.5 pr-4 text-right font-mono text-[var(--color-navy-400)]">
+                        {costData ? `${costData.percent_of_total.toFixed(1)}%` : "—"}
+                      </td>
+                      <td className="py-2.5 text-center">
+                        <SourceIcon source={room.source} />
+                      </td>
+                      <td className="py-2 text-center">
+                        <button
+                          type="button"
+                          onClick={() => removeRoom(i)}
+                          className="rounded p-1 text-[var(--color-navy-500)] transition-colors hover:text-red-400"
+                          title="Remove room"
+                        >
+                          <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                            <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                          </svg>
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Add room + Recalculate */}
+          <div className="mt-4 flex items-center gap-3">
+            <button
+              type="button"
+              onClick={addRoom}
+              className="inline-flex items-center gap-1.5 rounded-md border border-[var(--color-navy-700)] px-3 py-2 text-xs font-medium text-[var(--color-navy-300)] transition-colors hover:border-[var(--color-navy-500)] hover:text-white"
+            >
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                <path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+              </svg>
+              Add Room
+            </button>
+            {hasEdits && (
+              <button
+                type="button"
+                onClick={handleRecalculate}
+                disabled={recalculating}
+                className="rounded-md bg-[var(--color-blueprint-500)] px-4 py-2 text-xs font-bold text-white transition-all hover:bg-[var(--color-blueprint-400)] hover:shadow-lg disabled:opacity-50"
+              >
+                {recalculating ? "Recalculating..." : "Recalculate"}
+              </button>
+            )}
+            {recalcError && (
+              <p className="text-xs text-red-400">{recalcError}</p>
+            )}
+          </div>
+        </>
       ) : (
         <div className="rounded border border-[var(--color-navy-700)]/50 bg-[var(--color-navy-800)]/50 px-4 py-6 text-center">
           <p className="text-sm text-[var(--color-navy-400)]">

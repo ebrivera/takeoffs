@@ -39,6 +39,7 @@
 - `SpaceCost` interface in `types.ts` matches backend `SpaceCost` Pydantic model
 - `estimateFromModel` in `api.ts` wraps body as `{ building, space_program }` to match `EstimateRequest` model
 - `npm run typecheck` and `npm run lint` are very slow (~5-10 min each) due to `eslint-config-next/typescript` type checking
+- Editable table pattern: local `useState` for editable rows, separate from read-only props; update parent via callback after API recalculation
 - `SourceIcon` component renders 4 SVG icons: tape measure (geometry), brain (llm), dashed circle (assumed), pencil (user_override)
 - `ROOM_TYPE_LABELS` maps Python enum values to human-readable display names
 
@@ -365,5 +366,21 @@
   - `estimateFromModel` was sending raw `BuildingModel` but backend changed to `EstimateRequest` wrapper in US-406 — frontend must wrap as `{ building, space_program }`
   - Space breakdown can come from two places: `result.estimate.space_breakdown` (from estimate endpoint) or `result.space_breakdown` (from analyze endpoint top-level) — use `??` chain for fallback
   - Room type display names use a static `ROOM_TYPE_LABELS` mapping; fallback regex converts `snake_case` to `Title Case`
+---
+
+## 2026-02-08 - US-408
+- What was implemented: Frontend room-level editing and recalculation — `SpaceProgramSection` converted from read-only display to editable table. Each room row has: text input for room name, dropdown for room type (populated from `RoomType` enum), number input for area SF. Add Room button appends new empty row, X button removes rows. Editing any field changes source indicator to `user_override` (pencil icon). "Recalculate" button appears when edits exist, sends updated `SpaceProgramPayload` to `POST /api/estimate` and refreshes the estimate display.
+- Files changed:
+  - `frontend/src/lib/types.ts` — added `RoomType` enum (35 values matching backend), `SpacePayload` interface, `SpaceProgramPayload` interface
+  - `frontend/src/lib/api.ts` — updated `estimateFromModel` parameter type from inline object to `SpaceProgramPayload`
+  - `frontend/src/app/analyze/page.tsx` — added `EditableRoom` interface, `spaceCostToEditable()` and `editableToPayload()` converters; converted `SpaceProgramSection` to stateful editable component with inline text/number inputs, room type dropdown, add/remove buttons, and Recalculate button; updated `ResultsView` to pass `buildingModel` and `onRecalculated` callback to `SpaceProgramSection`
+  - `prd.json` — US-408 passes: true
+- **Learnings for future iterations:**
+  - `SpaceProgramSection` needs both `buildingModel` (for the API request) and `onRecalculated` callback (to update parent estimate state)
+  - Editable rooms use local state (`editableRooms`) separate from the read-only `spaceBreakdown` prop — cost data ($/SF, total, %) comes from the original breakdown until recalculation
+  - After successful recalculation, editable rooms are refreshed from the new `space_breakdown` in the response
+  - `RoomType` enum in types.ts must match backend `cantena.models.enums.RoomType` exactly (35 values)
+  - `estimateFromModel` API function wraps body as `{ building, space_program }` matching backend `EstimateRequest` model
+  - New rooms added by user default to `source: "user_override"`, `confidence: "low"`, `room_type: RoomType.OTHER`
 ---
 
