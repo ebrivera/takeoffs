@@ -164,7 +164,7 @@
         "Typecheck passes"
       ],
       "priority": 8,
-      "passes": false,
+      "passes": true,
       "notes": "This endpoint is also useful standalone — a PM who knows their building parameters can skip VLM entirely. Split from the UI story to keep each iteration small."
     },
     {

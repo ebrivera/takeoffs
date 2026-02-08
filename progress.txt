@@ -28,6 +28,9 @@
 - FastAPI `app.state` attributes are dynamically typed — mypy doesn't need `type: ignore[attr-defined]` comments
 - Use `create_app(pipeline=mock)` factory pattern for test dependency injection — no env vars needed
 - FastAPI TestClient for sync tests: `client.post("/api/analyze", files=..., data=...)` for multipart form
+- Pydantic models used as FastAPI request body params need `# noqa: TCH001` — FastAPI resolves annotations at runtime
+- `create_app(cost_engine=mock)` for testing /api/estimate — separate from pipeline injection
+- `CostEngine.estimate(building, project_name)` takes BuildingModel + project name, returns CostEstimate
 
 ---
 
@@ -134,5 +137,17 @@
   - The ResultsView component in page.tsx handles the full results display: header card, division table, assumptions disclosure, AI reasoning disclosure, and metadata footer
   - ConfidenceBadge uses lowercase keys from backend (`high`/`medium`/`low`) and CSS `uppercase` for display — no case conversion needed
   - DisclosurePanel is a reusable collapsible component already in page.tsx — use it for any new collapsible sections
+---
+
+## 2026-02-07 - US-108
+- What was implemented: POST /api/estimate endpoint — accepts BuildingModel JSON body, runs CostEngine directly (no PDF/VLM), returns CostEstimate JSON.
+- Files changed:
+  - `backend/cantena/api/app.py` — added `cost_engine` param to `create_app()`, `_get_cost_engine()` lazy-loader, `POST /api/estimate` endpoint, imported `BuildingModel` with `noqa: TCH001`
+  - `backend/tests/test_api.py` — added `TestEstimateEndpoint` with 2 tests (valid 200, invalid 422), updated `_create_test_client` to accept `cost_engine` param
+- **Learnings for future iterations:**
+  - Pydantic models used as FastAPI endpoint parameters must be imported at runtime — `from __future__ import annotations` defers evaluation but FastAPI resolves via `get_type_hints()`. Use `# noqa: TCH001` to suppress ruff's TC001 rule.
+  - `CostEngine.estimate(building, project_name)` — the project_name can be derived from location fields when no explicit name is available
+  - The `create_app` factory now accepts both `pipeline` and `cost_engine` for independent DI
+  - `_get_cost_engine()` uses lazy initialization via `create_default_engine()` — no env vars needed for this endpoint
 ---
 

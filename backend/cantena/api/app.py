@@ -1,4 +1,4 @@
-"""FastAPI application — create_app factory with /api/analyze and /api/health."""
+"""FastAPI application — create_app factory with /api endpoints."""
 
 from __future__ import annotations
 
@@ -11,8 +11,10 @@ from fastapi import FastAPI, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 
 from cantena.exceptions import CantenaError
+from cantena.models.building import BuildingModel  # noqa: TCH001 (FastAPI resolves at runtime)
 
 if TYPE_CHECKING:
+    from cantena.engine import CostEngine
     from cantena.services.pipeline import AnalysisPipeline
 
 logger = logging.getLogger(__name__)
@@ -21,6 +23,7 @@ logger = logging.getLogger(__name__)
 def create_app(
     *,
     pipeline: AnalysisPipeline | None = None,
+    cost_engine: CostEngine | None = None,
 ) -> FastAPI:
     """Create and configure the FastAPI application.
 
@@ -30,6 +33,9 @@ def create_app(
         Optional pre-built pipeline for dependency injection (e.g. tests).
         If not provided, one is created from environment variables on first
         request to /api/analyze.
+    cost_engine
+        Optional pre-built cost engine for /api/estimate. If not provided,
+        one is created via create_default_engine on first request.
     """
     app = FastAPI(title="Cantena", version="0.1.0")
 
@@ -40,8 +46,9 @@ def create_app(
         allow_headers=["*"],
     )
 
-    # Store pipeline on app state so tests can inject mocks
+    # Store on app state so tests can inject mocks
     app.state.pipeline = pipeline
+    app.state.cost_engine = cost_engine
 
     def _get_pipeline() -> AnalysisPipeline:
         pl: AnalysisPipeline | None = app.state.pipeline
@@ -53,6 +60,16 @@ def create_app(
         pl = create_pipeline()
         app.state.pipeline = pl
         return pl
+
+    def _get_cost_engine() -> CostEngine:
+        eng: CostEngine | None = app.state.cost_engine
+        if eng is not None:
+            return eng
+        from cantena.factory import create_default_engine
+
+        eng = create_default_engine()
+        app.state.cost_engine = eng
+        return eng
 
     # ------------------------------------------------------------------
     # GET /api/health
@@ -118,5 +135,18 @@ def create_app(
                 tmp_path.unlink()
             if tmp_dir.exists():
                 tmp_dir.rmdir()
+
+    # ------------------------------------------------------------------
+    # POST /api/estimate
+    # ------------------------------------------------------------------
+
+    @app.post("/api/estimate")
+    def estimate(building: BuildingModel) -> dict[str, Any]:
+        engine = _get_cost_engine()
+        project_name = (
+            f"{building.location.city}, {building.location.state}"
+        )
+        result = engine.estimate(building, project_name)
+        return result.model_dump(mode="json")
 
     return app

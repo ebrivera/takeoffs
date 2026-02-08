@@ -87,8 +87,11 @@ def _make_mock_pipeline() -> MagicMock:
     return mock
 
 
-def _create_test_client(pipeline: AnalysisPipeline | None = None) -> TestClient:
-    app = create_app(pipeline=pipeline)
+def _create_test_client(
+    pipeline: AnalysisPipeline | None = None,
+    cost_engine: object | None = None,
+) -> TestClient:
+    app = create_app(pipeline=pipeline, cost_engine=cost_engine)  # type: ignore[arg-type]
     return TestClient(app)
 
 
@@ -312,3 +315,32 @@ class TestAnalyzePipelineErrors:
 
         assert response.status_code == 500
         assert "API timeout" in response.json()["detail"]
+
+
+# ---------------------------------------------------------------------------
+# Estimate endpoint — direct BuildingModel → CostEstimate
+# ---------------------------------------------------------------------------
+
+
+class TestEstimateEndpoint:
+    def test_valid_building_model_returns_200(self) -> None:
+        mock_engine = MagicMock()
+        mock_engine.estimate.return_value = _make_cost_estimate()
+        client = _create_test_client(cost_engine=mock_engine)
+
+        body = _make_building_model().model_dump(mode="json")
+        response = client.post("/api/estimate", json=body)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["project_name"] == "Test Project"
+        assert "total_cost" in data
+        assert "breakdown" in data
+
+    def test_invalid_data_returns_422(self) -> None:
+        mock_engine = MagicMock()
+        client = _create_test_client(cost_engine=mock_engine)
+
+        response = client.post("/api/estimate", json={"bad": "data"})
+
+        assert response.status_code == 422
