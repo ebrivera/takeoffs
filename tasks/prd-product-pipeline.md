@@ -5,7 +5,8 @@
 - **Project:** cantena-product-pipeline
 - **Branch:** ralph/product-pipeline
 - **Description:**  
-  The product layer for Cantena — PDF ingestion, VLM-based drawing analysis, FastAPI backend, and Next.js frontend. Depends on the cost engine foundation from PRD 1 (cantena-cost-engine). This PRD takes the standalone estimation library and turns it into a working web application: upload a construction floor plan PDF, get a conceptual budget in under 60 seconds. The pipeline is: PDF → images → VLM analysis → BuildingModel → CostEngine → CostEstimate → UI display.
+  The product layer for Cantena — PDF ingestion, VLM-based drawing analysis, FastAPI backend, and Next.js frontend. Depends on the cost engine foundation from PRD 1 (cantena-cost-engine). This PRD takes the standalone estimation library and turns it into a working web application: upload a construction floor plan PDF, get a conceptual budget in under 60 seconds. The pipeline is: PDF → images → VLM analysis → BuildingModel → CostEngine → CostEstimate → UI display.  
+  **Scope note:** the marketing/landing page is separate work (already in progress). This PRD is for the **product experience**, implemented as a dedicated route (e.g. `/analyze`) so we don’t duplicate or overwrite landing page work at `/`.
 
 ---
 
@@ -32,10 +33,12 @@ Run these to validate PRD completion:
 
 #### Acceptance criteria
 
-- `frontend/` directory with a Next.js 14+ App Router project (TypeScript strict mode)
+- `frontend/` directory uses the existing Next.js 14+ App Router project (TypeScript strict mode)
 - Tailwind CSS configured and working
 - ESLint and TypeScript strict mode configured in `tsconfig.json`
-- A simple health-check page at `/` that renders `Cantena` as placeholder
+- **Landing page remains at `/` (out of scope for this PRD).**  
+  The **product** UI work in this PRD lives under a dedicated route, e.g.:
+  - `frontend/src/app/analyze/page.tsx` (or equivalent App Router route) as the entry point for product analysis
 - `package.json` has scripts: dev, build, lint, typecheck (tsc --noEmit)
 - `frontend/lib/types.ts` defines TypeScript interfaces matching the Python CostEstimate, CostRange, DivisionCost, Assumption, BuildingSummary models from PRD 1 — these are the API contract
 - `frontend/lib/api.ts` defines a typed fetch wrapper: `analyzePlan(file: File, location: {city: string, state: string}) -> Promise<CostEstimate>` that POSTs to `/api/analyze` (stubbed with a TODO for now)
@@ -43,7 +46,8 @@ Run these to validate PRD completion:
 
 - **Passes:** false
 - **Notes:**  
-  Keep it simple. No component libraries, no state management libraries. Just Next.js, Tailwind, and TypeScript. The `types.ts` file is critical — it's the contract between frontend and backend. Generate it to match the Pydantic models exactly. The `api.ts` fetch wrapper ensures all API calls are typed end-to-end.
+  Keep it simple. No component libraries, no state management libraries. Just Next.js, Tailwind, and TypeScript. The `types.ts` file is critical — it's the contract between frontend and backend. Generate it to match the Pydantic models exactly. The `api.ts` fetch wrapper ensures all API calls are typed end-to-end.  
+  **Important:** do not recreate the landing page. Product work should compose with or sit alongside it via routing (e.g. `/analyze`).
 
 ---
 
@@ -230,7 +234,7 @@ Run these to validate PRD completion:
 
 #### Acceptance criteria
 
-- `frontend/app/page.tsx` is the main page with upload interface
+- `frontend/src/app/analyze/page.tsx` is the main **product** page with upload interface (**landing remains at `/`**)
 - UI has:
   - (a) drag-and-drop zone for PDF upload (also click-to-browse)
   - (b) project name text input
@@ -266,7 +270,7 @@ Run these to validate PRD completion:
 
 #### Acceptance criteria
 
-- Results section shows after successful analysis, on the same page below the upload form
+- Results section shows after successful analysis, on the same `/analyze` page below the upload form
 - Header section:
   - project name
   - building summary (type, SF, stories, structure, wall system, location)
@@ -389,7 +393,7 @@ Run these to validate PRD completion:
 #### Acceptance criteria
 
 - `GET /api/sample-estimate` endpoint returns a pre-built CostEstimate for a realistic project (e.g., 45,000 SF 3-story steel office in Baltimore) — no VLM call needed
-- Frontend has a 'Try sample estimate' link/button that loads the sample without requiring PDF upload
+- Frontend has a 'Try sample estimate' link/button that loads the sample without requiring PDF upload **from the product route (e.g. `/analyze`)**
 - If `ANTHROPIC_API_KEY` is not set, the `/api/analyze` endpoint returns a helpful error message suggesting the user try the sample estimate instead
 - Frontend error boundary: if the results component crashes, shows 'Something went wrong' with retry option instead of blank screen
 - Backend request timeout:

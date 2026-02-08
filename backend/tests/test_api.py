@@ -132,6 +132,7 @@ class TestHealth:
 # ---------------------------------------------------------------------------
 
 
+@patch.dict("os.environ", {"ANTHROPIC_API_KEY": "test-key-fake"})
 class TestAnalyzeSuccess:
     def test_analyze_with_pdf_returns_200(self) -> None:
         mock_pipeline = _make_mock_pipeline()
@@ -227,6 +228,7 @@ class TestAnalyzeSuccess:
 # ---------------------------------------------------------------------------
 
 
+@patch.dict("os.environ", {"ANTHROPIC_API_KEY": "test-key-fake"})
 class TestAnalyzeValidation:
     def test_non_pdf_returns_400(self) -> None:
         mock_pipeline = _make_mock_pipeline()
@@ -279,6 +281,7 @@ class TestAnalyzeValidation:
 # ---------------------------------------------------------------------------
 
 
+@patch.dict("os.environ", {"ANTHROPIC_API_KEY": "test-key-fake"})
 class TestAnalyzePipelineErrors:
     def test_pipeline_error_returns_500(self) -> None:
         mock_pipeline = _make_mock_pipeline()

@@ -8,8 +8,15 @@ import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from dotenv import load_dotenv
 from fastapi import FastAPI, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+
+# Load .env from project root (backend/../.env or backend/.env)
+_backend_dir = Path(__file__).resolve().parent.parent.parent
+_project_root = _backend_dir.parent
+load_dotenv(_project_root / ".env")
+load_dotenv(_backend_dir / ".env")
 
 from cantena.exceptions import CantenaError
 from cantena.models.building import BuildingModel  # noqa: TCH001 (FastAPI resolves at runtime)
