@@ -71,7 +71,7 @@
         "`ruff check cantena tests` passes"
       ],
       "priority": 4,
-      "passes": false,
+      "passes": true,
       "notes": "Assembly layer: geometry-first, LLM fills gaps/flags issues, assumed distribution is last resort. The area-gap policy avoids silently 'making the numbers match.' Depends on US-402 (SpaceProgram) and US-403 (CostEngine room awareness)."
     },
     {
