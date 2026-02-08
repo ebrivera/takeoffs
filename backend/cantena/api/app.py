@@ -145,6 +145,10 @@ def create_app(
                 },
                 "processing_time_seconds": result.processing_time_seconds,
                 "pages_analyzed": result.pages_analyzed,
+                "geometry_available": result.geometry_available,
+                "measurement_confidence": (
+                    result.measurement_confidence.value
+                ),
             }
 
         except CantenaError as exc:

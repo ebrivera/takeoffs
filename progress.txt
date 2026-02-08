@@ -6,6 +6,7 @@
 - `cantena/geometry/` package: `extractor.py` (VectorExtractor, DrawingData, VectorPath, Point2D, BoundingRect, PathType), `scale.py` (ScaleDetector, ScaleResult, TextBlock, Confidence, parse_dimension_string), `walls.py` (WallDetector, WallSegment, WallAnalysis, Orientation), `measurement.py` (MeasurementService, PageMeasurements, MeasurementConfidence, pts_to_real_sf, pts_to_real_lf)
 - Shapely 2.x needs `types-shapely` pip package for mypy stubs — `convex_hull` returns `BaseGeometry`, must `isinstance(hull, Polygon)` before `.exterior`
 - HybridAnalyzer in `cantena/services/hybrid_analyzer.py`: HybridAnalyzer, HybridAnalysisResult, MergeDecision, MergeSource — merges geometry PageMeasurements with VLM VlmAnalysisResult
+- Pipeline uses HybridAnalyzer when >50 vector paths detected (constant `_VECTOR_PATH_THRESHOLD` in pipeline.py) — falls back to VLM-only otherwise
 - `AnalyzeResponse` type in `types.ts` wraps the full backend response (estimate + analysis + metadata)
 - Tailwind v4 uses `@theme inline` and CSS custom properties — reference with `var(--color-navy-xxx)` in className
 - Python 3.11+ with pydantic v2 for domain models
@@ -289,5 +290,20 @@
   - Merge logic: gross_sf from geometry if HIGH/MEDIUM confidence, else VLM; building_type/stories/structural/exterior/story_height always VLM; special_conditions merges both (geometry anomalies appended)
   - Area discrepancy threshold is >20% between geometry and VLM — triggers a special_condition note
   - MergeDecision records every field merge with source, reasoning, and confidence — provides trust/audit trail
+---
+
+## 2026-02-07 - US-306
+- What was implemented: Updated AnalysisPipeline to optionally use HybridAnalyzer when vector geometry is available. Pipeline extracts vector paths from PDF, and when >50 paths are found and HybridAnalyzer is configured, uses hybrid analysis (geometry + VLM merge). Falls back to VLM-only otherwise. PipelineResult extended with geometry_available, measurement_confidence, and merge_decisions fields. /api/analyze response includes geometry_available and measurement_confidence.
+- Files changed:
+  - `backend/cantena/services/pipeline.py` — added hybrid_analyzer param to AnalysisPipeline, _count_vector_paths and _run_hybrid_analysis methods, PipelineResult geometry fields, _VECTOR_PATH_THRESHOLD constant
+  - `backend/cantena/api/app.py` — added geometry_available and measurement_confidence to /api/analyze response
+  - `backend/tests/test_pipeline.py` — added 5 tests: vector-rich PDF uses HybridAnalyzer, scanned PDF falls back to VLM-only, VLM-only result has geometry defaults, hybrid result populates geometry fields, backward compatible without HybridAnalyzer
+  - `prd.json` — US-306 passes: true
+- **Learnings for future iterations:**
+  - `_count_vector_paths` and `_run_hybrid_analysis` use deferred fitz imports to open PDF independently of PdfProcessor — avoids coupling geometry extraction to the image rendering pipeline
+  - Second deferred `import fitz` in same module doesn't need `# type: ignore[import-untyped]` — mypy only checks the import once per module
+  - `patch.object(AnalysisPipeline, "_count_vector_paths", return_value=100)` is the cleanest way to test hybrid vs VLM-only branching — avoids needing real PDF files in tests
+  - Frozen dataclass with mutable default (list) needs `field(default=None)` not `field(default_factory=list)` when None is the no-data sentinel
+  - HybridAnalysisResult import needed in TYPE_CHECKING block for return type annotation in `_run_hybrid_analysis`
 ---
 

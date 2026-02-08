@@ -140,7 +140,7 @@
         "Typecheck passes"
       ],
       "priority": 6,
-      "passes": false,
+      "passes": true,
       "notes": "Depends on US-305. Drop-in upgrade. Frontend unchanged, but measurements are computed from actual geometry when available. The >50 paths threshold distinguishes real CAD geometry from border/annotation marks."
     },
     {

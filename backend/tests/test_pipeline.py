@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -13,6 +13,9 @@ from cantena.exceptions import (
     PdfProcessingError,
     VlmAnalysisError,
 )
+from cantena.geometry.extractor import DrawingData
+from cantena.geometry.measurement import MeasurementConfidence, PageMeasurements
+from cantena.geometry.scale import ScaleResult
 from cantena.models.building import BuildingModel, ComplexityScores, Location
 from cantena.models.enums import (
     BuildingType,
@@ -25,6 +28,12 @@ from cantena.models.estimate import (
     CostEstimate,
     CostRange,
     EstimateMetadata,
+)
+from cantena.services.hybrid_analyzer import (
+    HybridAnalysisResult,
+    HybridAnalyzer,
+    MergeDecision,
+    MergeSource,
 )
 from cantena.services.pdf_processor import PageResult, PdfProcessingResult, PdfProcessor
 from cantena.services.pipeline import AnalysisPipeline, PipelineResult
@@ -340,3 +349,217 @@ class TestCleanupOnFailure:
             pipeline.analyze(Path("/tmp/bad.pdf"), "Test", "Baltimore, MD")
 
         mock_pdf.cleanup.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Hybrid analysis integration
+# ---------------------------------------------------------------------------
+
+
+def _make_hybrid_result() -> HybridAnalysisResult:
+    """Create a HybridAnalysisResult with sensible defaults."""
+    model = _make_building_model()
+    vlm_result = _make_vlm_result()
+    scale = ScaleResult(
+        drawing_units=0.125,
+        real_units=12.0,
+        scale_factor=96.0,
+        notation='1/8"=1\'-0"',
+        confidence=Confidence.HIGH,
+    )
+    measurements = PageMeasurements(
+        scale=scale,
+        gross_area_sf=45000.0,
+        building_perimeter_lf=850.0,
+        total_wall_length_lf=2400.0,
+        wall_count=12,
+        confidence=MeasurementConfidence.HIGH,
+        raw_data=DrawingData(
+            paths=[],
+            page_width_pts=612.0,
+            page_height_pts=792.0,
+            page_size_inches=(8.5, 11.0),
+        ),
+    )
+    return HybridAnalysisResult(
+        building_model=model,
+        geometry_measurements=measurements,
+        vlm_result=vlm_result,
+        merge_decisions=[
+            MergeDecision(
+                field_name="gross_sf",
+                source=MergeSource.GEOMETRY,
+                value="45000.0",
+                reasoning="Geometry computed 45000 SF",
+                confidence=Confidence.HIGH,
+            ),
+        ],
+    )
+
+
+def _make_hybrid_pipeline() -> (
+    tuple[AnalysisPipeline, MagicMock, MagicMock, MagicMock, MagicMock]
+):
+    """Create pipeline with HybridAnalyzer mock."""
+    mock_pdf = MagicMock(spec=PdfProcessor)
+    mock_vlm = MagicMock(spec=VlmAnalyzer)
+    mock_engine = MagicMock(spec=CostEngine)
+    mock_hybrid = MagicMock(spec=HybridAnalyzer)
+
+    pipeline = AnalysisPipeline(
+        pdf_processor=mock_pdf,
+        vlm_analyzer=mock_vlm,
+        cost_engine=mock_engine,
+        hybrid_analyzer=mock_hybrid,
+    )
+    return pipeline, mock_pdf, mock_vlm, mock_engine, mock_hybrid
+
+
+class TestHybridAnalysis:
+    """Vector-rich PDF uses HybridAnalyzer."""
+
+    @patch.object(
+        AnalysisPipeline,
+        "_count_vector_paths",
+        return_value=100,
+    )
+    @patch.object(
+        AnalysisPipeline,
+        "_run_hybrid_analysis",
+    )
+    def test_vector_rich_pdf_uses_hybrid(
+        self,
+        mock_run_hybrid: MagicMock,
+        _mock_count: MagicMock,
+    ) -> None:
+        """Pipeline uses HybridAnalyzer when >50 paths found."""
+        pipeline, mock_pdf, mock_vlm, mock_engine, mock_hybrid = (
+            _make_hybrid_pipeline()
+        )
+
+        mock_pdf.process.return_value = _make_pdf_result()
+        hybrid_result = _make_hybrid_result()
+        mock_run_hybrid.return_value = hybrid_result
+        mock_engine.estimate.return_value = _make_cost_estimate()
+
+        result = pipeline.analyze(
+            Path("/tmp/test.pdf"), "Test", "Baltimore, MD"
+        )
+
+        assert result.geometry_available is True
+        assert (
+            result.measurement_confidence
+            == MeasurementConfidence.HIGH
+        )
+        assert result.merge_decisions is not None
+        assert len(result.merge_decisions) == 1
+        # VLM analyze should NOT be called directly
+        mock_vlm.analyze.assert_not_called()
+
+    @patch.object(
+        AnalysisPipeline,
+        "_count_vector_paths",
+        return_value=10,
+    )
+    def test_scanned_pdf_falls_back_to_vlm(
+        self,
+        _mock_count: MagicMock,
+    ) -> None:
+        """Pipeline falls back to VLM-only when <=50 paths."""
+        pipeline, mock_pdf, mock_vlm, mock_engine, mock_hybrid = (
+            _make_hybrid_pipeline()
+        )
+
+        mock_pdf.process.return_value = _make_pdf_result()
+        mock_vlm.analyze.return_value = _make_vlm_result()
+        mock_engine.estimate.return_value = _make_cost_estimate()
+
+        result = pipeline.analyze(
+            Path("/tmp/test.pdf"), "Test", "Baltimore, MD"
+        )
+
+        assert result.geometry_available is False
+        assert (
+            result.measurement_confidence
+            == MeasurementConfidence.NONE
+        )
+        assert result.merge_decisions is None
+        mock_vlm.analyze.assert_called_once()
+        mock_hybrid.analyze.assert_not_called()
+
+
+class TestPipelineResultGeometryFields:
+    """PipelineResult includes geometry fields."""
+
+    def test_vlm_only_result_has_geometry_defaults(self) -> None:
+        """Without hybrid, geometry fields have default values."""
+        pipeline, mock_pdf, mock_vlm, mock_engine = _make_pipeline()
+
+        mock_pdf.process.return_value = _make_pdf_result()
+        mock_vlm.analyze.return_value = _make_vlm_result()
+        mock_engine.estimate.return_value = _make_cost_estimate()
+
+        result = pipeline.analyze(
+            Path("/tmp/test.pdf"), "Test", "Baltimore, MD"
+        )
+
+        assert result.geometry_available is False
+        assert (
+            result.measurement_confidence
+            == MeasurementConfidence.NONE
+        )
+        assert result.merge_decisions is None
+
+    @patch.object(
+        AnalysisPipeline,
+        "_count_vector_paths",
+        return_value=200,
+    )
+    @patch.object(
+        AnalysisPipeline,
+        "_run_hybrid_analysis",
+    )
+    def test_hybrid_result_populates_geometry_fields(
+        self,
+        mock_run_hybrid: MagicMock,
+        _mock_count: MagicMock,
+    ) -> None:
+        """Hybrid analysis populates all geometry fields."""
+        pipeline, mock_pdf, mock_vlm, mock_engine, mock_hybrid = (
+            _make_hybrid_pipeline()
+        )
+
+        mock_pdf.process.return_value = _make_pdf_result()
+        hybrid_result = _make_hybrid_result()
+        mock_run_hybrid.return_value = hybrid_result
+        mock_engine.estimate.return_value = _make_cost_estimate()
+
+        result = pipeline.analyze(
+            Path("/tmp/test.pdf"), "Test", "Baltimore, MD"
+        )
+
+        assert result.geometry_available is True
+        assert result.measurement_confidence == (
+            MeasurementConfidence.HIGH
+        )
+        assert result.merge_decisions is not None
+
+
+class TestBackwardCompatible:
+    """Backward compatible without HybridAnalyzer configured."""
+
+    def test_no_hybrid_analyzer_uses_vlm_only(self) -> None:
+        """Pipeline without hybrid_analyzer param works as before."""
+        pipeline, mock_pdf, mock_vlm, mock_engine = _make_pipeline()
+
+        mock_pdf.process.return_value = _make_pdf_result()
+        mock_vlm.analyze.return_value = _make_vlm_result()
+        mock_engine.estimate.return_value = _make_cost_estimate()
+
+        result = pipeline.analyze(
+            Path("/tmp/test.pdf"), "Test", "Baltimore, MD"
+        )
+
+        assert isinstance(result, PipelineResult)
+        assert result.geometry_available is False
+        mock_vlm.analyze.assert_called_once()
