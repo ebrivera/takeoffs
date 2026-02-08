@@ -26,6 +26,7 @@
 - `LABEL_TO_ROOM_TYPE` dict in `space_program.py` maps drawing labels (e.g., "COATS") to RoomType enum
 - `SpaceSource` StrEnum: GEOMETRY, LLM, ASSUMED, USER_OVERRIDE — tracks provenance of each Space
 - Pydantic mutable models allow direct field assignment (`space.source = SpaceSource.USER_OVERRIDE`) unlike frozen dataclasses
+- `SpaceAssembler` in `cantena.services.space_assembler` — priority: geometry → LLM → assumed; enriches geometry with LLM; reconciles area gaps explicitly
 
 ---
 
@@ -291,5 +292,19 @@
   - `SpaceCost.source` is a plain `str` (not SpaceSource enum) — maps from `Space.source.value` for JSON-friendly output
   - `percent_of_total` is computed in a second pass after all room costs are summed
   - `cost_per_sf` for the overall estimate uses weighted average (total_cost / total_area) when SpaceProgram is provided
+---
+
+## 2026-02-08 - US-404
+- What was implemented: SpaceAssembler service in `cantena/services/space_assembler.py` that assembles the best possible SpaceProgram by merging geometry-detected rooms with LLM interpretation. Priority: (1) geometry rooms via `from_detected_rooms`, (2) LLM interpretation via `from_llm_interpretation`, (3) fallback via `from_building_model`. When using geometry rooms, LLM data enriches unlabeled rooms (re-classifies OTHER to specific RoomType), adds LLM-only rooms geometry missed, and flags anomalies (e.g., WC > 150 SF). `reconcile_areas()` adds explicit "Unaccounted" OTHER space for area gaps without scaling existing rooms.
+- Files changed:
+  - `backend/cantena/services/space_assembler.py` — new module: `SpaceAssembler` class with `assemble()`, `reconcile_areas()`, `_enrich_with_llm()` static method; `_flag_anomalies()` module-level helper for oversized WC/bathroom detection
+  - `backend/tests/test_space_assembler.py` — 12 tests across 7 test classes (TestGeometryRoomsAvailable, TestNoGeometryLlmAvailable, TestNeitherAvailable, TestUnlabeledGeometryRoomsGetLlmLabels, TestAreaGapCreatesUnaccounted, TestAnomalyFlagging, TestLlmOnlyRoomsAdded)
+  - `prd.json` — US-404 passes: true
+- **Learnings for future iterations:**
+  - Anomaly flagging should run after all SpaceProgram assembly (including LLM enrichment), not inside `_enrich_with_llm` — otherwise it's skipped when LLM data is unavailable
+  - `LlmInterpretation` type in `_enrich_with_llm` parameter needs TYPE_CHECKING import (not deferred runtime import) since `from __future__ import annotations` makes annotations strings
+  - Lightweight stub dataclasses in tests avoid importing heavy geometry/LLM modules — keeps test suite fast
+  - `SpaceProgram.from_building_model()` uses deferred import of `get_room_costs_for_building_type` internally, so tests can call it without circular import issues
+  - LLM room re-classification tries LABEL_TO_ROOM_TYPE mapping first, then RoomType(enum_value) as fallback — covers both label-based and enum-based LLM outputs
 ---
 
