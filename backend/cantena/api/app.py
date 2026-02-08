@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any
 from dotenv import load_dotenv
 from fastapi import FastAPI, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 
 # Load .env from project root (backend/../.env or backend/.env)
 _backend_dir = Path(__file__).resolve().parent.parent.parent
@@ -18,12 +19,20 @@ _project_root = _backend_dir.parent
 load_dotenv(_project_root / ".env")
 load_dotenv(_backend_dir / ".env")
 
-from cantena.exceptions import CantenaError
-from cantena.models.building import BuildingModel  # noqa: TCH001 (FastAPI resolves at runtime)
+from cantena.exceptions import CantenaError  # noqa: E402
+from cantena.models.building import BuildingModel  # noqa: E402, TCH001
+from cantena.models.space_program import SpaceProgram  # noqa: E402, TCH001
 
 if TYPE_CHECKING:
     from cantena.engine import CostEngine
     from cantena.services.pipeline import AnalysisPipeline
+
+
+class EstimateRequest(BaseModel):
+    """Request body for POST /api/estimate."""
+
+    building: BuildingModel
+    space_program: SpaceProgram | None = None
 
 logger = logging.getLogger(__name__)
 
@@ -178,13 +187,22 @@ def create_app(
     # ------------------------------------------------------------------
 
     @app.post("/api/estimate")
-    def estimate(building: BuildingModel) -> dict[str, Any]:
+    def estimate(request: EstimateRequest) -> dict[str, Any]:
         engine = _get_cost_engine()
+        building = request.building
         project_name = (
             f"{building.location.city}, {building.location.state}"
         )
-        result = engine.estimate(building, project_name)
-        return result.model_dump(mode="json")
+        result = engine.estimate(
+            building, project_name, space_program=request.space_program,
+        )
+        response: dict[str, Any] = result.model_dump(mode="json")
+        if result.space_breakdown is not None:
+            response["space_breakdown"] = [
+                sc.model_dump(mode="json")
+                for sc in result.space_breakdown
+            ]
+        return response
 
     # ------------------------------------------------------------------
     # GET /api/sample-estimate

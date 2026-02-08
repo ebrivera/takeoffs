@@ -105,7 +105,7 @@
         "`ruff check cantena tests` passes"
       ],
       "priority": 6,
-      "passes": false,
+      "passes": true,
       "notes": "Split from original US-406. This is the backend endpoint needed before the frontend can send recalculation requests. Depends on US-403 (room-type-aware engine)."
     },
     {

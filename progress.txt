@@ -27,6 +27,12 @@
 - `SpaceSource` StrEnum: GEOMETRY, LLM, ASSUMED, USER_OVERRIDE — tracks provenance of each Space
 - Pydantic mutable models allow direct field assignment (`space.source = SpaceSource.USER_OVERRIDE`) unlike frozen dataclasses
 - `SpaceAssembler` in `cantena.services.space_assembler` — priority: geometry → LLM → assumed; enriches geometry with LLM; reconciles area gaps explicitly
+- `PipelineResult` extended with `space_program`, `space_breakdown`, `room_detection_method` for enhanced pipeline
+- `AnalysisPipeline` accepts optional `space_assembler: SpaceAssembler` — when provided + geometry available, assembles SpaceProgram and passes to CostEngine
+- `create_pipeline()` in `deps.py` wires up HybridAnalyzer + SpaceAssembler for full enhanced flow
+- `room_detection_method` values: `"polygonize"` (geometry), `"llm_only"` (LLM), `"assumed"` (no rooms detected)
+- `POST /api/estimate` uses `EstimateRequest` wrapper model: `{"building": BuildingModel, "space_program": SpaceProgram | None}` — NOT flat BuildingModel body
+- Imports after `load_dotenv()` in `app.py` need `# noqa: E402` — pre-existing pattern for FastAPI runtime-resolved models
 
 ---
 
@@ -306,5 +312,35 @@
   - Lightweight stub dataclasses in tests avoid importing heavy geometry/LLM modules — keeps test suite fast
   - `SpaceProgram.from_building_model()` uses deferred import of `get_room_costs_for_building_type` internally, so tests can call it without circular import issues
   - LLM room re-classification tries LABEL_TO_ROOM_TYPE mapping first, then RoomType(enum_value) as fallback — covers both label-based and enum-based LLM outputs
+---
+
+## 2026-02-08 - US-405
+- What was implemented: Full enhanced pipeline chaining geometry room detection → LLM interpretation → SpaceProgram assembly → room-type-aware cost engine. `AnalysisPipeline` extended with optional `space_assembler: SpaceAssembler` parameter. When geometry data is available (via HybridAnalyzer), the pipeline assembles a SpaceProgram, reconciles area gaps, and passes it to CostEngine for room-type-aware pricing. `PipelineResult` extended with `space_program`, `space_breakdown`, and `room_detection_method` fields. `/api/analyze` response includes `space_breakdown` and `room_detection_method` when available. `create_pipeline()` in `deps.py` updated to wire up HybridAnalyzer + SpaceAssembler for full enhanced flow. Backward compatible: no geometry → VLM-only + `room_detection_method='assumed'`; no assembler → existing behavior unchanged.
+- Files changed:
+  - `backend/cantena/services/pipeline.py` — extended `PipelineResult` with 3 new fields; extended `AnalysisPipeline.__init__` with `space_assembler` param; added SpaceProgram assembly step (step 4) between hybrid analysis and cost estimation; added `_determine_room_detection_method()` static helper; graceful fallback on assembler failure
+  - `backend/cantena/api/app.py` — updated `/api/analyze` response to include `space_breakdown` array and `room_detection_method` string
+  - `backend/cantena/api/deps.py` — updated `create_pipeline()` to wire up `MeasurementService`, `HybridAnalyzer`, and `SpaceAssembler` for the full enhanced geometry pipeline
+  - `backend/tests/test_enhanced_pipeline.py` — 8 tests across 5 test classes (TestEnhancedFlowWithGeometry: 3 tests, TestFallbackWithoutGeometry: 1 test, TestApiResponseSpaceBreakdown: 1 test, TestBackwardCompatiblePipeline: 2 tests, TestSpaceCostSourceTracking: 1 test)
+  - `prd.json` — US-405 passes: true
+- **Learnings for future iterations:**
+  - `hybrid_result` variable must be declared as `HybridAnalysisResult | None = None` before the if/else branches to avoid NameError in the space program assembly step
+  - `_determine_room_detection_method` checks `SpaceSource.GEOMETRY` vs `SpaceSource.LLM` presence in program spaces to determine detection method
+  - Lightweight stub dataclasses (`_StubDetectedRoom`) reused from test_space_assembler.py pattern — avoids importing heavy geometry modules in tests
+  - `SpaceAssembler` failure is caught and logged; pipeline falls back to whole-building estimate without crashing
+  - `deps.py` deferred imports (VectorExtractor, MeasurementService, etc.) inside `create_pipeline()` keep module-level imports clean
+---
+
+## 2026-02-08 - US-406
+- What was implemented: POST /api/estimate endpoint updated to accept optional SpaceProgram in request body. New `EstimateRequest` Pydantic model wraps `BuildingModel` + optional `SpaceProgram`. When space_program is provided, it's passed to `CostEngine.estimate()` for room-type-aware pricing and the response includes `space_breakdown` array. Without space_program, existing whole-building estimate behavior preserved.
+- Files changed:
+  - `backend/cantena/api/app.py` — added `EstimateRequest` model (building + optional space_program), updated `/api/estimate` endpoint to accept `EstimateRequest`, pass space_program to engine, include space_breakdown in response; added `pydantic.BaseModel` import and `SpaceProgram` import; fixed pre-existing E402 ruff errors with noqa comments
+  - `backend/tests/test_estimate_endpoint.py` — new file: 6 tests across 2 test classes (TestEstimateWithSpaceProgram: 3 tests for space_breakdown in response, engine receives SpaceProgram, correct response structure; TestEstimateWithoutSpaceProgram: 3 tests for standard estimate, engine receives None, invalid data 422)
+  - `backend/tests/test_api.py` — updated existing TestEstimateEndpoint to use new `{"building": ...}` request body format
+  - `prd.json` — US-406 passes: true
+- **Learnings for future iterations:**
+  - Changing endpoint request body shape (from flat `BuildingModel` to wrapped `EstimateRequest`) requires updating all existing tests that call that endpoint
+  - `EstimateRequest` Pydantic model needs runtime imports for both `BuildingModel` and `SpaceProgram` — use `# noqa: E402, TCH001` since they're after `load_dotenv` calls and used as FastAPI request body fields
+  - `result.model_dump(mode="json")` already includes `space_breakdown: null` when None — the explicit `space_breakdown` key in response dict overwrites it with the detailed list when available
+  - Pre-existing E402 errors in app.py (imports after load_dotenv) — fixed all three with `# noqa: E402` comments
 ---
 
