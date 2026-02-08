@@ -194,3 +194,18 @@
   - The sample building model should match real use cases (3-story, 45K SF, steel-frame office, curtain wall, Baltimore)
 ---
 
+## 2026-02-07 - US-111
+- What was implemented: Docker Compose for local development — Dockerfiles for backend and frontend, docker-compose.yml, .env.example, and README.md with setup instructions.
+- Files changed:
+  - `backend/Dockerfile` — new file: Python 3.11-slim, PyMuPDF deps, pip install, uvicorn with reload
+  - `frontend/Dockerfile` — new file: Node 20-slim, npm ci, next dev
+  - `docker-compose.yml` — new file: backend (port 8000) + frontend (port 3000), volume mounts for hot reload, ANTHROPIC_API_KEY from .env
+  - `.env.example` — new file: ANTHROPIC_API_KEY placeholder
+  - `README.md` — updated: overview, prerequisites, quick start, dev without Docker, architecture
+- **Learnings for future iterations:**
+  - `NEXT_PUBLIC_API_URL` must point to `http://localhost:8000` (not `http://backend:8000`) because API calls happen in the browser, not server-side
+  - Use `/app/node_modules` anonymous volume in frontend container to avoid overwriting node_modules from host mount
+  - Backend uses `--factory` flag with uvicorn to call `create_app()` at startup
+  - Keep Dockerfiles simple — no multi-stage builds for dev mode
+---
+

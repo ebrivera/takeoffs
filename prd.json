@@ -225,7 +225,7 @@
         "Typecheck passes"
       ],
       "priority": 11,
-      "passes": false,
+      "passes": true,
       "notes": "Docker Compose makes onboarding trivial. .env.example pattern is standard and safe. Hot reload on both services for rapid iteration. Keep Dockerfiles simple — no multi-stage builds. Working > optimized for demo stage."
     }
   ]
