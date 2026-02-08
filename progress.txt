@@ -11,6 +11,8 @@
 - Use `.venv/bin/ruff` and `.venv/bin/mypy` directly (not `python3 -m`)
 - `dataclasses.replace()` for updating frozen dataclass instances (not `dataclasses.asdict()` + constructor)
 - Room label matching uses `_ROOM_NAMES` frozenset with longest-first substring matching
+- Anthropic `ImageBlockParam` `media_type` requires `Literal["image/jpeg", "image/png", "image/gif", "image/webp"]` — plain `str` fails mypy
+- `Path` import goes in `TYPE_CHECKING` block when only used in annotations (ruff TC003)
 
 ---
 
@@ -153,5 +155,20 @@
   - For "outside label assigns to nearest" tests, room centroid must be within 50pts of the outside label position — large rooms have centroids far from edges
   - Shapely coordinate sequences yield `tuple[float, ...]` not `tuple[float, float]` — must cast explicitly for mypy --strict
   - `dataclasses.replace()` is the clean way to update frozen dataclass fields
+---
+
+## 2026-02-08 - US-374
+- What was implemented: LLM-assisted geometry interpretation service in `cantena/services/llm_geometry_interpreter.py`. `LlmGeometryInterpreter` class that sends extracted geometry data (rooms, measurements, text blocks) and optionally a PDF page image to Claude for semantic analysis. Returns `LlmInterpretation` with building_type, structural_system, per-room confirmed labels/types, special conditions, measurement flags, and confidence notes. Gracefully falls back to default UNKNOWN interpretation on any API error (timeout, 429, malformed response).
+- Files changed:
+  - `backend/cantena/services/llm_geometry_interpreter.py` — new module: `LlmGeometryInterpreter.interpret()`, `GeometrySummary`, `RoomSummary`, `LlmInterpretation`, `LlmRoomInterpretation` (all frozen dataclasses), `_serialize_geometry_summary()`, `_extract_json()`, `_build_interpretation()` helpers
+  - `backend/tests/test_llm_geometry_interpreter.py` — 17 tests across 7 test classes: TestWellFormedResponse (4), TestMalformedResponse (3), TestTimeoutFallback (3), TestGeometrySummarySerialization (3), TestVisionInput (3), TestDefaultInterpretation (1)
+  - `prd.json` — US-374 passes: true
+- **Learnings for future iterations:**
+  - Anthropic `ImageBlockParam` source `media_type` must be `Literal["image/jpeg", "image/png", "image/gif", "image/webp"]` — assigning a plain `str` from ternary expression fails mypy --strict
+  - `Path` used only in type annotations should go in `TYPE_CHECKING` block (ruff TC003) — with `from __future__ import annotations`, string annotations work at runtime
+  - Service follows VlmAnalyzer pattern: constructor takes api_key + model + timeout, creates `anthropic.Anthropic` client
+  - `_extract_json()` reused from VlmAnalyzer pattern — extracts JSON from ``` fences
+  - Mocking pattern: `patch.object(interpreter._client.messages, "create", ...)` — same as VlmAnalyzer tests
+  - For error fallback tests, use `anthropic.APITimeoutError(request=MagicMock())`, `anthropic.APIConnectionError(request=MagicMock())`, and `anthropic.RateLimitError(message=..., response=MagicMock(status_code=429, headers={}), body=None)`
 ---
 
