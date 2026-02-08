@@ -331,7 +331,7 @@ class TestEstimateEndpoint:
         mock_engine.estimate.return_value = _make_cost_estimate()
         client = _create_test_client(cost_engine=mock_engine)
 
-        body = _make_building_model().model_dump(mode="json")
+        body = {"building": _make_building_model().model_dump(mode="json")}
         response = client.post("/api/estimate", json=body)
 
         assert response.status_code == 200
