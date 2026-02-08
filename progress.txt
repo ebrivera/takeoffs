@@ -19,6 +19,9 @@
 - Register custom pytest marks (e.g., `llm`) in `pyproject.toml` under `[tool.pytest.ini_options]` markers — `--strict-markers` enforces this
 - LLM integration tests: `_get_api_key()` helper + `pytest.skip()` for missing API key; catch 429 with `pytest.skip("Rate limited")`
 - PIL semi-transparent overlays: convert to RGBA, draw on separate `Image.new("RGBA")` overlay, `Image.alpha_composite()`, then convert back to RGB for PNG
+- `RoomType` StrEnum in `cantena.models.enums` — 35 room types covering residential, commercial, education, healthcare, industrial
+- `RoomTypeCost` Pydantic model in `cantena.data.room_costs` — room-level cost data with cost_drivers and typical_percent_of_building
+- Building type → room cost category mapping: `_RESIDENTIAL_TYPES`, `_OFFICE_TYPES`, `_SCHOOL_TYPES` frozensets in `room_costs.py`
 
 ---
 
@@ -234,5 +237,23 @@
   - `draw.text(anchor="mm")` centers text at the given point (middle-middle) — useful for room labels at centroids
   - Synthetic test PDFs with two adjacent rooms (rectangle split by dividing wall) reliably produce polygonize rooms for testing
   - Pixel sampling in tests: multiply room centroid coords by zoom factor to find the pixel position in the output PNG
+---
+
+## 2026-02-08 - US-401
+- What was implemented: Room-type cost differentiation data — `RoomType` StrEnum (35 values) in `cantena/models/enums.py`, `RoomTypeCost` Pydantic model and seed data in `cantena/data/room_costs.py` covering residential (13 room types), office (9 room types), school (3 room types), and hospital (3 room types). `CostDataRepository` extended with `get_room_type_costs(building_type)` method. Building types mapped to cost categories: residential types → residential costs, office/retail/warehouse → office costs, schools → school costs, hospital → hospital costs.
+- Files changed:
+  - `backend/cantena/models/enums.py` — added `RoomType` StrEnum with 35 values (residential, commercial, education, healthcare, industrial, circulation, fallback)
+  - `backend/cantena/data/room_costs.py` — new module: `RoomTypeCost` Pydantic model, seed cost data lists (`RESIDENTIAL_ROOM_COSTS`, `OFFICE_ROOM_COSTS`, `SCHOOL_ROOM_COSTS`, `HOSPITAL_ROOM_COSTS`), `get_room_costs_for_building_type()` lookup function with building type category mapping
+  - `backend/cantena/data/repository.py` — added `get_room_type_costs()` method delegating to `room_costs` module
+  - `backend/cantena/models/__init__.py` — exported `RoomType`
+  - `backend/cantena/data/__init__.py` — exported `RoomTypeCost`
+  - `backend/tests/test_room_costs.py` — 18 tests across 3 test classes (TestRoomCostData: 9, TestCostDataRepositoryRoomTypes: 4, TestBuildingTypeMapping: 5)
+  - `prd.json` — US-401 passes: true
+- **Learnings for future iterations:**
+  - `ruff check --fix` auto-fixes I001 import sorting — always run after creating new files
+  - Pydantic models for cost data use direct imports (not TYPE_CHECKING) since `runtime-evaluated-base-classes` in ruff config handles TCH001
+  - Building type category mapping uses `frozenset` for efficient membership testing
+  - Seed data typical_percent_of_building values must sum to 90-110% per category (AC requirement)
+  - `get_room_costs_for_building_type()` is the free function; `CostDataRepository.get_room_type_costs()` is the repository method that delegates to it
 ---
 
