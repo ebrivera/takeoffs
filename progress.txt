@@ -3,7 +3,7 @@
 - PyMuPDF `get_drawings()` "re" items have 3 elements: `("re", Rect, orientation_flag)` — check `len(item) >= 2` not `== 2`
 - PyMuPDF drawing dict values are typed `object` — use `isinstance(raw, (int, float))` guard before `float()` for mypy strict
 - Geometry models use frozen dataclasses (not Pydantic) for internal service types — consistent with pipeline.py pattern
-- `cantena/geometry/` package: `extractor.py` (VectorExtractor, DrawingData, VectorPath, Point2D, BoundingRect, PathType), `scale.py` (ScaleDetector, ScaleResult, TextBlock, Confidence, parse_dimension_string), `walls.py` (WallDetector, WallSegment, WallAnalysis, Orientation)
+- `cantena/geometry/` package: `extractor.py` (VectorExtractor, DrawingData, VectorPath, Point2D, BoundingRect, PathType), `scale.py` (ScaleDetector, ScaleResult, TextBlock, Confidence, parse_dimension_string), `walls.py` (WallDetector, WallSegment, WallAnalysis, Orientation), `measurement.py` (MeasurementService, PageMeasurements, MeasurementConfidence, pts_to_real_sf, pts_to_real_lf)
 - Shapely 2.x needs `types-shapely` pip package for mypy stubs — `convex_hull` returns `BaseGeometry`, must `isinstance(hull, Polygon)` before `.exterior`
 - `AnalyzeResponse` type in `types.ts` wraps the full backend response (estimate + analysis + metadata)
 - Tailwind v4 uses `@theme inline` and CSS custom properties — reference with `var(--color-navy-xxx)` in className
@@ -257,5 +257,21 @@
   - Parallel line pair detection uses perpendicular distance between midpoint and line — gap 2–20 pts range for wall thickness
   - `statistics.median()` for wall thickness from detected parallel pairs
   - Deferred shapely imports inside methods to avoid circular imports and keep module lightweight
+---
+
+## 2026-02-07 - US-304
+- What was implemented: Scaled measurement service — MeasurementService class that combines VectorExtractor + ScaleDetector + WallDetector to produce real-world measurements (square feet, linear feet) from a single PDF page. Includes conversion functions pts_to_real_sf and pts_to_real_lf, MeasurementConfidence enum (HIGH/MEDIUM/LOW/NONE), and graceful fallbacks (no vectors -> NONE, no scale -> estimated scale -> LOW, walls but no boundary -> MEDIUM, walls + boundary -> HIGH).
+- Files changed:
+  - `backend/cantena/geometry/measurement.py` — MeasurementService, PageMeasurements, MeasurementConfidence, pts_to_real_sf, pts_to_real_lf
+  - `backend/tests/test_measurement.py` — 8 tests: conversion functions (SF at 1/8" scale, LF at 1/8" scale, SF at 1/4" scale, single wall LF), full pipeline with known PDF (area ~5000 SF, perimeter ~300 LF), empty page NONE confidence, missing scale LOW confidence
+  - `prd.json` — US-304 passes: true
+- **Learnings for future iterations:**
+  - Area formula: `area_sf = area_pts * (1/72)^2 * scale_factor^2 / 144` — converts sq points to sq paper inches, then to sq real inches, then to sq feet
+  - Length formula: `length_lf = length_pts * (1/72) * scale_factor / 12` — converts points to paper inches, then to real inches, then to feet
+  - At 1/8"=1'-0" (factor 96): 900pts × 450pts on paper = 100' × 50' = 5000 SF; perimeter 2700pts = 300 LF
+  - MeasurementService uses the same frozen dataclass pattern as other geometry modules
+  - Confidence cascade: NONE (no paths) -> LOW (estimated scale) -> MEDIUM (no outer boundary) -> HIGH (walls + boundary)
+  - `_estimate_scale_from_page` returns a default 1/8"=1'-0" (factor 96) when no scale detected — conservative for architectural floor plans
+  - Use `tempfile.NamedTemporaryFile` with context manager to satisfy ruff SIM115
 ---
 

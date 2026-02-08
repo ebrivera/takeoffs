@@ -96,7 +96,7 @@
         "Typecheck passes"
       ],
       "priority": 4,
-      "passes": false,
+      "passes": true,
       "notes": "Depends on US-301, US-302, US-303. This is where geometry becomes measurements. Conversion math: PDF coordinates in points (72/inch), scale factor converts paper inches to real inches. The fallback chain ensures we always try to give something rather than failing."
     },
     {
