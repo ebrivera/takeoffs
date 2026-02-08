@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import io
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from fastapi.testclient import TestClient
 
@@ -344,3 +344,47 @@ class TestEstimateEndpoint:
         response = client.post("/api/estimate", json={"bad": "data"})
 
         assert response.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# Sample estimate endpoint
+# ---------------------------------------------------------------------------
+
+
+class TestSampleEstimate:
+    def test_sample_estimate_returns_200(self) -> None:
+        client = _create_test_client()
+        response = client.get("/api/sample-estimate")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert "estimate" in data
+        assert "building_model" in data
+        assert "analysis" in data
+        assert data["estimate"]["project_name"] == "Baltimore Office Tower"
+        assert data["building_model"]["gross_sf"] == 45000.0
+        assert data["building_model"]["stories"] == 3
+
+
+# ---------------------------------------------------------------------------
+# API key check on /api/analyze
+# ---------------------------------------------------------------------------
+
+
+class TestApiKeyCheck:
+    @patch.dict("os.environ", {}, clear=True)
+    def test_analyze_without_api_key_returns_400(self) -> None:
+        client = _create_test_client()
+
+        response = client.post(
+            "/api/analyze",
+            files={"file": ("plan.pdf", io.BytesIO(_make_pdf_bytes()), "application/pdf")},
+            data={
+                "project_name": "Test",
+                "city": "Baltimore",
+                "state": "MD",
+            },
+        )
+
+        assert response.status_code == 400
+        assert "ANTHROPIC_API_KEY" in response.json()["detail"]

@@ -34,6 +34,11 @@
 - `/api/analyze` response includes `building_model` field — full BuildingModel JSON for frontend parameter editing
 - `estimateFromModel(building)` in `api.ts` POSTs BuildingModel JSON to `/api/estimate` — no PDF/VLM needed
 - Use `structuredClone()` for deep-copying BuildingModel state in React (avoids mutation)
+- VlmAnalyzer `timeout` param (default 60s) passes through to `anthropic.Anthropic(timeout=...)` — no need for httpx
+- `GET /api/sample-estimate` returns a realistic pre-built estimate — no API key needed, good for demos
+- API key check: `os.environ.get("ANTHROPIC_API_KEY")` in `/api/analyze` — returns 400 with helpful message if missing
+- Use `@patch.dict("os.environ", {}, clear=True)` to test API key absence — env may have the key set
+- Error boundary in `analyze/error-boundary.tsx` as class component; wired through `analyze/layout.tsx`
 
 ---
 
@@ -168,5 +173,24 @@
   - Enum label maps (`BUILDING_TYPE_LABELS`, `STRUCTURAL_LABELS`, `EXTERIOR_LABELS`) convert snake_case values to human-readable labels
   - FieldWithConfidence wraps each editable field with label + confidence badge — keeps the grid layout clean
   - Toggle between AI and adjusted estimates uses simple boolean state + conditional rendering
+---
+
+## 2026-02-07 - US-110
+- What was implemented: Demo polish features — GET /api/sample-estimate endpoint (realistic 45K SF office in Baltimore), API key check on /api/analyze with helpful error, VLM 60-second timeout, "Try sample estimate" button on frontend, React error boundary wrapping /analyze route.
+- Files changed:
+  - `backend/cantena/api/app.py` — added `os` import, API key check in `/api/analyze`, `GET /api/sample-estimate` endpoint with realistic BuildingModel
+  - `backend/cantena/services/vlm_analyzer.py` — added `timeout` param (default 60s) to `VlmAnalyzer.__init__`, passed to `anthropic.Anthropic(timeout=...)`
+  - `backend/tests/test_api.py` — added `TestSampleEstimate` (sample returns 200 with full structure), `TestApiKeyCheck` (400 when no API key), imported `patch`
+  - `frontend/src/lib/api.ts` — added `getSampleEstimate()` function calling GET /api/sample-estimate
+  - `frontend/src/app/analyze/page.tsx` — added "Try sample estimate" button with `handleSample()`, `loadingSample` state
+  - `frontend/src/app/analyze/error-boundary.tsx` — new file: `AnalyzeErrorBoundary` class component with "Something went wrong" + retry
+  - `frontend/src/app/analyze/layout.tsx` — new file: wraps children with `AnalyzeErrorBoundary`
+- **Learnings for future iterations:**
+  - `anthropic.Anthropic(timeout=60.0)` works directly — no need for `httpx.Timeout` or custom client config
+  - `@patch.dict("os.environ", {}, clear=True)` is needed to test API key absence when the env var is set globally
+  - React error boundaries require class components — not possible with hooks alone
+  - Error boundary goes in a separate file from page.tsx to keep it clean, wired through layout.tsx
+  - Sample estimate endpoint uses deferred imports (inside the handler) to avoid circular imports and keep app.py light
+  - The sample building model should match real use cases (3-story, 45K SF, steel-frame office, curtain wall, Baltimore)
 ---
 

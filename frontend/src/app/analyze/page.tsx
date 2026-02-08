@@ -2,7 +2,7 @@
 
 import { useCallback, useRef, useState } from "react";
 import Link from "next/link";
-import { analyzePlan, estimateFromModel } from "@/lib/api";
+import { analyzePlan, estimateFromModel, getSampleEstimate } from "@/lib/api";
 import type {
   AnalyzeResponse,
   BuildingModel,
@@ -166,6 +166,22 @@ export default function AnalyzePage() {
   const handleRetry = useCallback(() => {
     setError(null);
     setResult(null);
+  }, []);
+
+  const [loadingSample, setLoadingSample] = useState(false);
+
+  const handleSample = useCallback(async () => {
+    setLoadingSample(true);
+    setError(null);
+    setResult(null);
+    try {
+      const data = await getSampleEstimate();
+      setResult(data);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load sample.");
+    } finally {
+      setLoadingSample(false);
+    }
   }, []);
 
   // ── Helpers ────────────────────────────────────────────────────────────
@@ -351,14 +367,24 @@ export default function AnalyzePage() {
             </div>
           </div>
 
-          {/* Submit button */}
-          <button
-            type="submit"
-            disabled={!canSubmit || loading}
-            className="w-full rounded-md bg-[var(--color-accent-500)] px-6 py-3 text-sm font-bold tracking-wide text-white transition-all hover:bg-[var(--color-accent-400)] hover:shadow-lg disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-[var(--color-accent-500)] disabled:hover:shadow-none sm:w-auto"
-          >
-            {loading ? "Analyzing..." : "Analyze"}
-          </button>
+          {/* Submit buttons */}
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              type="submit"
+              disabled={!canSubmit || loading || loadingSample}
+              className="w-full rounded-md bg-[var(--color-accent-500)] px-6 py-3 text-sm font-bold tracking-wide text-white transition-all hover:bg-[var(--color-accent-400)] hover:shadow-lg disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-[var(--color-accent-500)] disabled:hover:shadow-none sm:w-auto"
+            >
+              {loading ? "Analyzing..." : "Analyze"}
+            </button>
+            <button
+              type="button"
+              disabled={loading || loadingSample}
+              onClick={handleSample}
+              className="w-full rounded-md border border-[var(--color-navy-600)] px-6 py-3 text-sm font-medium text-[var(--color-navy-300)] transition-all hover:border-[var(--color-navy-400)] hover:text-white disabled:cursor-not-allowed disabled:opacity-40 sm:w-auto"
+            >
+              {loadingSample ? "Loading..." : "Try sample estimate"}
+            </button>
+          </div>
         </form>
 
         {/* Loading state */}

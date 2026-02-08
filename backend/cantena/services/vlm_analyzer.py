@@ -137,8 +137,12 @@ class VlmAnalyzer:
         self,
         api_key: str,
         model: str = "claude-sonnet-4-5-20250929",
+        timeout: float = 60.0,
     ) -> None:
-        self._client = anthropic.Anthropic(api_key=api_key)
+        self._client = anthropic.Anthropic(
+            api_key=api_key,
+            timeout=timeout,
+        )
         self._model = model
 
     def analyze(

@@ -205,7 +205,7 @@
         "Verify in browser using dev-browser skill"
       ],
       "priority": 10,
-      "passes": false,
+      "passes": true,
       "notes": "Sample estimate is demo insurance — always have a working demo regardless of API availability or network issues. Sample should be realistic: 3-story steel-frame office, 45K SF, curtain wall, Baltimore MD."
     },
     {

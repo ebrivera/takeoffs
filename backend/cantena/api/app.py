@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -90,6 +91,16 @@ def create_app(
         city: str = Form(...),
         state: str = Form(...),
     ) -> dict[str, Any]:
+        # Check for API key
+        if not os.environ.get("ANTHROPIC_API_KEY"):
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "ANTHROPIC_API_KEY is not configured. "
+                    "Try the sample estimate instead."
+                ),
+            )
+
         # Validate file type
         filename = file.filename or ""
         if not filename.lower().endswith(".pdf"):
@@ -151,5 +162,64 @@ def create_app(
         )
         result = engine.estimate(building, project_name)
         return result.model_dump(mode="json")
+
+    # ------------------------------------------------------------------
+    # GET /api/sample-estimate
+    # ------------------------------------------------------------------
+
+    @app.get("/api/sample-estimate")
+    def sample_estimate() -> dict[str, Any]:
+        from cantena.models.building import ComplexityScores, Location
+        from cantena.models.enums import (
+            BuildingType,
+            Confidence,
+            ExteriorWall,
+            MechanicalSystem,
+            StructuralSystem,
+        )
+
+        sample_building = BuildingModel(
+            building_type=BuildingType.OFFICE_MID_RISE,
+            building_use="General office building",
+            gross_sf=45000.0,
+            stories=3,
+            story_height_ft=13.0,
+            structural_system=StructuralSystem.STEEL_FRAME,
+            exterior_wall_system=ExteriorWall.CURTAIN_WALL,
+            mechanical_system=MechanicalSystem.VAV,
+            location=Location(city="Baltimore", state="MD"),
+            complexity_scores=ComplexityScores(
+                structural=3, mep=3, finishes=3, site=2,
+            ),
+            confidence={
+                "building_type": Confidence.HIGH,
+                "gross_sf": Confidence.HIGH,
+                "stories": Confidence.HIGH,
+                "story_height_ft": Confidence.MEDIUM,
+                "structural_system": Confidence.HIGH,
+                "exterior_wall_system": Confidence.MEDIUM,
+            },
+        )
+        engine = _get_cost_engine()
+        est = engine.estimate(sample_building, "Baltimore Office Tower")
+        return {
+            "estimate": est.model_dump(mode="json"),
+            "building_model": sample_building.model_dump(mode="json"),
+            "summary_dict": est.to_summary_dict(),
+            "export_dict": est.to_export_dict(),
+            "analysis": {
+                "reasoning": (
+                    "This is a sample estimate for a 3-story, "
+                    "45,000 SF steel-frame office building with "
+                    "curtain wall exterior in Baltimore, MD. "
+                    "It demonstrates the Cantena cost estimation "
+                    "pipeline without requiring a PDF upload or "
+                    "API key."
+                ),
+                "warnings": [],
+            },
+            "processing_time_seconds": 0.0,
+            "pages_analyzed": 0,
+        }
 
     return app

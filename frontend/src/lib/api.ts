@@ -63,3 +63,21 @@ export async function estimateFromModel(
 
   return (await res.json()) as CostEstimate;
 }
+
+/**
+ * Fetch the pre-built sample estimate (no API key needed).
+ */
+export async function getSampleEstimate(): Promise<AnalyzeResponse> {
+  const res = await fetch(`${API_BASE}/api/sample-estimate`);
+
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    const message =
+      body && typeof body === "object" && "detail" in body
+        ? String(body.detail)
+        : `Failed to load sample (${res.status})`;
+    throw new Error(message);
+  }
+
+  return (await res.json()) as AnalyzeResponse;
+}
