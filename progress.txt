@@ -417,3 +417,17 @@
   - All 9 room labels found, distributed: left half (4): LIVING ROOM, KITCHEN, FRONT PORCH, LAUNDRY; right half (5): DINING, BACK PORCH, UTILITY, WC, COATS
 ---
 
+## 2026-02-08 - US-357
+- What was implemented: Geometry accuracy report generation and minimum threshold assertion tests — capstone integration test that runs the full pipeline on first-floor.pdf, writes a comprehensive markdown report to test_results/first-floor-geometry-report.md, and verifies minimum accuracy thresholds (scale ±10%, area ±30%, ≥6 room labels).
+- Files changed:
+  - `backend/tests/integration/test_first_floor_report.py` — new file: TestReportGeneration (1 test: generates full report with Drawing Info, Measurement Results, Text Extraction, Confidence Assessment, Scale Detection Path, Known Limitations, and Recommendations sections), TestMinimumThresholds (3 tests: scale factor ±10%, gross area ±30%, ≥6 room labels)
+  - `test_results/first-floor-geometry-report.md` — generated report file (created by test)
+  - `prd.json` — US-357 passes: true
+- **Learnings for future iterations:**
+  - Report results: Scale factor 48.0 (exact match), gross area 548.0 SF (+7.0% vs 512 SF expected), perimeter 97.9 LF (+2.0% vs 96 LF expected), 42 walls (23H, 19V), wall thickness ~6.2"
+  - All confidence components rated HIGH: scale detection (deterministic text normalization/parsing), wall detection (≥8 segments + outer boundary), text extraction (9/9 room labels)
+  - `datetime.UTC` alias required (not `timezone.utc`) per ruff UP017
+  - Report-generation test always passes (diagnostic tool) but must assert file creation
+  - Threshold tests are separate from the report test to clearly distinguish pass/fail assertions from diagnostic output
+---
+

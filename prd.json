@@ -132,7 +132,7 @@
         "All quality gates pass (pytest, mypy --strict, ruff check)"
       ],
       "priority": 7,
-      "passes": false,
+      "passes": true,
       "notes": "Capstone story. The report is the single place to understand accuracy on a real drawing. Minimum thresholds are achievable for a clean, well-dimensioned plan. Over time tighten tolerances (Phase 1 ±15% area, production ±10%)."
     }
   ]
