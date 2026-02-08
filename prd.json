@@ -93,7 +93,7 @@
         "All quality gates pass (pytest, mypy --strict, ruff check)"
       ],
       "priority": 5,
-      "passes": false,
+      "passes": true,
       "notes": "Enforce that the pipeline does not hinge on a single fragile parsing step. On clean drawings expect HIGH/MEDIUM confidence. On messy text expect graceful degradation, not failure."
     },
     {

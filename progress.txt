@@ -388,3 +388,15 @@
   - `pts_to_real_lf(pts, scale)` and `pts_to_real_sf(pts, scale)` from measurement.py are the correct conversion functions for integration tests
 ---
 
+## 2026-02-08 - US-355
+- What was implemented: Integration tests validating full MeasurementService.measure() pipeline on first-floor.pdf — verifies end-to-end measurement (scale detection → wall detection → area/perimeter/wall length computation), plus resilience tests with mocked mangled scale text ensuring graceful degradation.
+- Files changed:
+  - `backend/tests/integration/test_first_floor_measurement.py` — new file: 9 tests across TestMeasurementPipeline (7 tests) and TestMangledScaleResilience (2 tests)
+  - `prd.json` — US-355 passes: true
+- **Learnings for future iterations:**
+  - MeasurementService.measure() on first-floor.pdf achieves HIGH confidence: scale_factor=48.0, gross_area=548.0 SF (+7% vs 512), perimeter=97.9 LF, wall_length=227.5 LF, 42 walls
+  - When text extraction returns empty blocks (mangled text), detect_from_text and detect_from_dimensions both return None → pipeline falls back to estimated scale (factor=96) with LOW confidence, area balloons to ~2192 SF (because scale_factor doubles)
+  - `patch.object(ScaleDetector, "extract_text_blocks", return_value=[])` is the cleanest way to simulate text extraction failure without needing a real mangled PDF
+  - The pipeline never crashes on missing text — graceful degradation works: result is always returned, confidence degrades to LOW
+---
+
