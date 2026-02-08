@@ -111,7 +111,7 @@
         "All quality gates pass (pytest, mypy --strict, ruff check)"
       ],
       "priority": 6,
-      "passes": false,
+      "passes": true,
       "notes": "Validates text extraction needed for room-type-aware costing. Spatial accuracy matters: labels must land inside the correct room. Drawing includes annotations that are not room labels."
     },
     {

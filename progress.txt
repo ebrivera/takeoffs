@@ -3,6 +3,8 @@
 - `_normalize_scale_text()` in `scale.py` canonicalizes Unicode quotes and whitespace before regex matching — two-step approach for resilient scale detection
 - Integration tests in `backend/tests/integration/` — fixtures in `conftest.py`, test PDF at repo root `test_pdfs/first-floor.pdf`
 - Path from `tests/integration/conftest.py` to repo root: `Path(__file__).resolve().parents[3]`
+- PyMuPDF text blocks may contain multiple labels in one block (newline-separated) — normalize with `re.sub(r"\s+", " ", text)` before matching
+- Title block text often uses spaced-out characters — collapse with `re.sub(r"\b(\w) (?=\w\b)", r"\1", text)` before searching
 - Use `<Link>` from `next/link` for internal navigation — ESLint `@next/next/no-html-link-for-pages` rule forbids `<a href="/">`
 - PyMuPDF `get_drawings()` "re" items have 3 elements: `("re", Rect, orientation_flag)` — check `len(item) >= 2` not `== 2`
 - PyMuPDF drawing dict values are typed `object` — use `isinstance(raw, (int, float))` guard before `float()` for mypy strict
@@ -398,5 +400,20 @@
   - When text extraction returns empty blocks (mangled text), detect_from_text and detect_from_dimensions both return None → pipeline falls back to estimated scale (factor=96) with LOW confidence, area balloons to ~2192 SF (because scale_factor doubles)
   - `patch.object(ScaleDetector, "extract_text_blocks", return_value=[])` is the cleanest way to simulate text extraction failure without needing a real mangled PDF
   - The pipeline never crashes on missing text — graceful degradation works: result is always returned, confidence degrades to LOW
+---
+
+## 2026-02-08 - US-356
+- What was implemented: Integration tests validating text and room label extraction from first-floor.pdf — verifies all 9 expected room labels found (case-insensitive with newline normalization), label positions within drawing content area, spatial separation of distinct label blocks, coarse left/right zone mapping, at least 10 dimension text blocks, and title block fields (SCALE, 1/4, A1.2, 1ST FLOOR, AMERICAN FARMHOUSE) in border areas.
+- Files changed:
+  - `backend/tests/integration/test_first_floor_rooms.py` — new file: 6 tests across 6 test classes (TestRoomLabelExtraction, TestRoomLabelPositions, TestRoomLabelSpatialSeparation, TestCoarseZoneMapping, TestDimensionBlocks, TestTitleBlockFields)
+  - `prd.json` — US-356 passes: true
+- **Learnings for future iterations:**
+  - PyMuPDF text blocks may contain multiple room labels in one block (e.g. "LIVING ROOM\nKITCHEN") — normalize newlines to spaces before label matching
+  - "BACK PORCH" appears as "BACK \nPORCH" (split across lines within one text block) — `re.sub(r"\s+", " ", text)` normalization is essential
+  - Title block text uses spaced-out characters: "A M E R I C A N  F A R M H O U S E" — collapse with `re.sub(r"\b(\w) (?=\w\b)", r"\1", text)` then normalize remaining whitespace
+  - Title block elements spread across page edges: SCALE at lower-left (148, 760), AMERICAN FARMHOUSE at right-center (1161, 363), sheet number at lower-right (1152, 766) — search border areas (right 15% OR bottom 15%) not just lower-right quadrant
+  - Spatial separation test must de-duplicate by text block position — labels sharing the same PDF text block (e.g. LIVING ROOM + KITCHEN at distance 0) are acceptable for open-plan rooms
+  - 21 dimension text blocks found, well above the 10 minimum threshold
+  - All 9 room labels found, distributed: left half (4): LIVING ROOM, KITCHEN, FRONT PORCH, LAUNDRY; right half (5): DINING, BACK PORCH, UTILITY, WC, COATS
 ---
 
