@@ -132,7 +132,7 @@
         "Typecheck passes"
       ],
       "priority": 7,
-      "passes": false,
+      "passes": true,
       "notes": "The definitive proof: polygonize improves accuracy on a real plan, and the LLM enriches without being required for measurement."
     },
     {

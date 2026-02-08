@@ -30,6 +30,9 @@ dev = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "--strict-markers -v"
+markers = [
+    "llm: tests requiring real Anthropic API calls (skipped without ANTHROPIC_API_KEY)",
+]
 
 [tool.mypy]
 strict = true

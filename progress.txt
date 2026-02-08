@@ -16,6 +16,8 @@
 - `ScaleVerifier` and `ScaleVerificationResult` from `cantena.geometry.scale_verify`
 - LLM verification decision logic: ±5% confirmed, ±10% confirmed+warning, >10% keep deterministic+warning
 - `VerificationSource` is a `Literal` type alias, not an enum (keeps it simple for dataclass field)
+- Register custom pytest marks (e.g., `llm`) in `pyproject.toml` under `[tool.pytest.ini_options]` markers — `--strict-markers` enforces this
+- LLM integration tests: `_get_api_key()` helper + `pytest.skip()` for missing API key; catch 429 with `pytest.skip("Rate limited")`
 
 ---
 
@@ -203,5 +205,19 @@
   - Ruff SIM102 catches nested `if` statements — combine with `and` instead of nesting
   - `MeasurementService` backward compatibility: new optional constructor params default to `None`; new `PageMeasurements` fields have default values; all 8 existing tests pass unchanged
   - Room-based area uses `room_analysis.total_area_sf` directly when `polygonize_success` is True, avoiding redundant pts-to-sf conversion
+---
+
+## 2026-02-08 - US-376
+- What was implemented: Real API integration tests in `tests/integration/test_first_floor_llm.py` that run the full enhanced pipeline (geometry + room detection + LLM interpretation + scale verification) on first-floor.pdf using real Anthropic API calls. Five test classes covering: LLM room interpretation (building type, structural system, room labels, special conditions), LLM with vision input (rendered page image), full pipeline accuracy (area/scale/room count), room area improvement over convex hull, and enhanced measurement report generation. Also registered the `llm` pytest mark in `pyproject.toml` to satisfy `--strict-markers`.
+- Files changed:
+  - `backend/tests/integration/test_first_floor_llm.py` — new file: 5 tests across 5 test classes (TestLlmRoomInterpretation, TestLlmWithImage, TestFullPipelineAccuracy, TestRoomAreaImprovementOverConvexHull, TestMeasurementReportWithRooms)
+  - `backend/pyproject.toml` — added `markers = ["llm: ..."]` to `[tool.pytest.ini_options]`
+  - `prd.json` — US-376 passes: true
+- **Learnings for future iterations:**
+  - `--strict-markers` in pytest requires all custom marks to be registered in `pyproject.toml` under `markers`; unregistered marks cause `PytestUnknownMarkWarning` (warning, not error, but should be fixed)
+  - Rate limit handling pattern: wrap `service.measure(page)` in a helper that catches `Exception` and checks `"429" in str(exc)` → `pytest.skip("Rate limited")`
+  - Page rendering for vision input: `page.get_pixmap(matrix=fitz.Matrix(2.0, 2.0))` gives 144 DPI; save to temp PNG with `.save(tmp.name)`
+  - `fitz` module import for runtime use (Matrix, get_pixmap) must be inside the test function body to avoid import errors in TYPE_CHECKING-only environments
+  - The `_build_service()` helper pattern keeps test methods clean while allowing all tests to create fresh service instances with LLM+verifier enabled
 ---
 
