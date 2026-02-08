@@ -33,6 +33,14 @@
 - `room_detection_method` values: `"polygonize"` (geometry), `"llm_only"` (LLM), `"assumed"` (no rooms detected)
 - `POST /api/estimate` uses `EstimateRequest` wrapper model: `{"building": BuildingModel, "space_program": SpaceProgram | None}` — NOT flat BuildingModel body
 - Imports after `load_dotenv()` in `app.py` need `# noqa: E402` — pre-existing pattern for FastAPI runtime-resolved models
+- Frontend uses Tailwind CSS v4 with CSS custom properties (`--color-navy-*`, `--color-blueprint-*`, `--color-accent-*`)
+- Frontend uses inline SVGs for icons — no external icon library (all hand-drawn 14x14 or 16x16 SVGs)
+- `ResultsView` layout order: Header card → Building Parameters → Space Program → Division Breakdown → Assumptions → AI Reasoning → Metadata footer
+- `SpaceCost` interface in `types.ts` matches backend `SpaceCost` Pydantic model
+- `estimateFromModel` in `api.ts` wraps body as `{ building, space_program }` to match `EstimateRequest` model
+- `npm run typecheck` and `npm run lint` are very slow (~5-10 min each) due to `eslint-config-next/typescript` type checking
+- `SourceIcon` component renders 4 SVG icons: tape measure (geometry), brain (llm), dashed circle (assumed), pencil (user_override)
+- `ROOM_TYPE_LABELS` maps Python enum values to human-readable display names
 
 ---
 
@@ -342,5 +350,20 @@
   - `EstimateRequest` Pydantic model needs runtime imports for both `BuildingModel` and `SpaceProgram` — use `# noqa: E402, TCH001` since they're after `load_dotenv` calls and used as FastAPI request body fields
   - `result.model_dump(mode="json")` already includes `space_breakdown: null` when None — the explicit `space_breakdown` key in response dict overwrites it with the detailed list when available
   - Pre-existing E402 errors in app.py (imports after load_dotenv) — fixed all three with `# noqa: E402` comments
+---
+
+## 2026-02-08 - US-407
+- What was implemented: Frontend space breakdown display table — new `SpaceProgramSection` component showing room-by-room cost breakdown between Building Parameters and CSI Division Breakdown. `SpaceCost` interface added to `types.ts` matching backend Pydantic model. `AnalyzeResponse` extended with `space_breakdown`, `geometry_available`, `measurement_confidence`, `room_detection_method`. Source indicator SVG icons (tape measure for geometry, brain for LLM, dashed circle for assumed, pencil for user override) with tooltips. Fallback message when no rooms detected. `estimateFromModel` in `api.ts` fixed to use `EstimateRequest` body format (`{ building, space_program }`).
+- Files changed:
+  - `frontend/src/lib/types.ts` — added `SpaceCost` interface; added `space_breakdown` to `CostEstimate`; added `space_breakdown`, `geometry_available`, `measurement_confidence`, `room_detection_method` to `AnalyzeResponse`
+  - `frontend/src/lib/api.ts` — updated `estimateFromModel` to wrap body as `{ building, space_program }` matching `EstimateRequest` model
+  - `frontend/src/app/analyze/page.tsx` — added `SpaceProgramSection` component (sorted by cost descending), `SourceIcon` component (4 inline SVGs), `ROOM_TYPE_LABELS` mapping, `formatRoomType` helper; inserted Space Program section in `ResultsView` between Building Parameters and Division Breakdown; `spaceBreakdown` computed from estimate-level or top-level response
+  - `prd.json` — US-407 passes: true
+- **Learnings for future iterations:**
+  - `npm run typecheck` and `npm run lint` each take 5-10+ minutes on this machine due to `eslint-config-next/typescript` type-aware linting
+  - Frontend uses no icon library — all icons are inline SVGs matching the existing stroke style (1.2px stroke, round caps/joins, 14x14 viewbox)
+  - `estimateFromModel` was sending raw `BuildingModel` but backend changed to `EstimateRequest` wrapper in US-406 — frontend must wrap as `{ building, space_program }`
+  - Space breakdown can come from two places: `result.estimate.space_breakdown` (from estimate endpoint) or `result.space_breakdown` (from analyze endpoint top-level) — use `??` chain for fallback
+  - Room type display names use a static `ROOM_TYPE_LABELS` mapping; fallback regex converts `snake_case` to `Title Case`
 ---
 
