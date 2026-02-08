@@ -137,7 +137,7 @@ def create_app(
             )
 
             estimate = result.estimate
-            return {
+            response: dict[str, Any] = {
                 "estimate": estimate.model_dump(mode="json"),
                 "building_model": result.analysis.building_model.model_dump(
                     mode="json",
@@ -154,7 +154,14 @@ def create_app(
                 "measurement_confidence": (
                     result.measurement_confidence.value
                 ),
+                "room_detection_method": result.room_detection_method,
             }
+            if result.space_breakdown is not None:
+                response["space_breakdown"] = [
+                    sc.model_dump(mode="json")
+                    for sc in result.space_breakdown
+                ]
+            return response
 
         except CantenaError as exc:
             logger.exception("Pipeline error during analysis")
