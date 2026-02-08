@@ -28,11 +28,13 @@ from cantena.models.estimate import (
     CostRange,
     DivisionCost,
     EstimateMetadata,
+    SpaceCost,
 )
 
 if TYPE_CHECKING:
     from cantena.data.repository import CostDataRepository
     from cantena.models.building import BuildingModel
+    from cantena.models.space_program import SpaceProgram
 
 # Complexity score -> multiplier mapping
 _COMPLEXITY_MULTIPLIERS: dict[int, float] = {
@@ -75,12 +77,20 @@ class CostEngine:
     def __init__(self, repository: CostDataRepository) -> None:
         self._repository = repository
 
-    def estimate(self, building: BuildingModel, project_name: str) -> CostEstimate:
+    def estimate(
+        self,
+        building: BuildingModel,
+        project_name: str,
+        space_program: SpaceProgram | None = None,
+    ) -> CostEstimate:
         """Produce a conceptual cost estimate for a building.
 
         Args:
             building: The building model describing the structure to estimate.
             project_name: A human-readable name for the project.
+            space_program: Optional room-by-room program for per-room pricing.
+                When provided, each room type is priced using room-specific
+                $/SF data and the total is the sum of individual room costs.
 
         Returns:
             A complete CostEstimate with total cost, cost per SF, CSI division
@@ -88,14 +98,6 @@ class CostEngine:
 
         Raises:
             ValueError: If no cost data match is found for the building type.
-
-        Example::
-
-            from cantena import create_default_engine, BuildingModel
-
-            engine = create_default_engine()
-            estimate = engine.estimate(building, "My Office Project")
-            print(estimate.total_cost.expected)
         """
         assumptions: list[Assumption] = []
 
@@ -130,18 +132,31 @@ class CostEngine:
         complexity_multiplier = self._calculate_complexity_multiplier(building)
         adjusted_cost_per_sf *= complexity_multiplier
 
-        # 4. Generate cost ranges
-        total_expected = adjusted_cost_per_sf * building.gross_sf
-        total_cost = CostRange(
-            low=total_expected * 0.80,
-            expected=total_expected,
-            high=total_expected * 1.25,
-        )
-        cost_per_sf = CostRange(
-            low=adjusted_cost_per_sf * 0.80,
-            expected=adjusted_cost_per_sf,
-            high=adjusted_cost_per_sf * 1.25,
-        )
+        # 4. Generate cost ranges (room-type-aware if space_program provided)
+        space_breakdown: list[SpaceCost] | None = None
+
+        if space_program is not None:
+            total_cost, cost_per_sf, space_breakdown = (
+                self._estimate_with_space_program(
+                    space_program=space_program,
+                    building=building,
+                    location_factor=location_factor,
+                    complexity_multiplier=complexity_multiplier,
+                    fallback_cost_per_sf=adjusted_cost_per_sf,
+                )
+            )
+        else:
+            total_expected = adjusted_cost_per_sf * building.gross_sf
+            total_cost = CostRange(
+                low=total_expected * 0.80,
+                expected=total_expected,
+                high=total_expected * 1.25,
+            )
+            cost_per_sf = CostRange(
+                low=adjusted_cost_per_sf * 0.80,
+                expected=adjusted_cost_per_sf,
+                high=adjusted_cost_per_sf * 1.25,
+            )
 
         # 5. Break down into CSI divisions
         breakdown = self._generate_division_breakdown(
@@ -176,7 +191,94 @@ class CostEngine:
             assumptions=assumptions,
             location_factor=location_factor,
             metadata=metadata,
+            space_breakdown=space_breakdown,
         )
+
+    def _estimate_with_space_program(
+        self,
+        space_program: SpaceProgram,
+        building: BuildingModel,
+        location_factor: float,
+        complexity_multiplier: float,
+        fallback_cost_per_sf: float,
+    ) -> tuple[CostRange, CostRange, list[SpaceCost]]:
+        """Price each room type separately using room-specific $/SF data.
+
+        Returns (total_cost, cost_per_sf, space_breakdown).
+        """
+        from cantena.data.room_costs import get_room_costs_for_building_type
+
+        room_costs = get_room_costs_for_building_type(building.building_type)
+        cost_by_room_type = {rc.room_type: rc.base_cost_per_sf for rc in room_costs}
+
+        space_costs: list[SpaceCost] = []
+        total_expected = 0.0
+        total_low = 0.0
+        total_high = 0.0
+
+        for space in space_program.spaces:
+            area = space.area_sf * space.count
+
+            # Look up room-type-specific cost; fall back to whole-building rate
+            room_cost_range = cost_by_room_type.get(space.room_type)
+            if room_cost_range is not None:
+                adj_low = room_cost_range.low * location_factor * complexity_multiplier
+                adj_expected = room_cost_range.expected * location_factor * complexity_multiplier
+                adj_high = room_cost_range.high * location_factor * complexity_multiplier
+            else:
+                # Fallback: whole-building $/SF with standard range
+                adj_expected = fallback_cost_per_sf
+                adj_low = fallback_cost_per_sf * 0.80
+                adj_high = fallback_cost_per_sf * 1.25
+
+            room_total_low = adj_low * area
+            room_total_expected = adj_expected * area
+            room_total_high = adj_high * area
+
+            total_low += room_total_low
+            total_expected += room_total_expected
+            total_high += room_total_high
+
+            space_costs.append(SpaceCost(
+                room_type=space.room_type.value,
+                name=space.name,
+                area_sf=area,
+                cost_per_sf=CostRange(
+                    low=adj_low,
+                    expected=adj_expected,
+                    high=adj_high,
+                ),
+                total_cost=CostRange(
+                    low=room_total_low,
+                    expected=room_total_expected,
+                    high=room_total_high,
+                ),
+                percent_of_total=0.0,  # Computed below
+                source=space.source.value,
+            ))
+
+        # Compute percent_of_total for each space
+        if total_expected > 0:
+            for sc in space_costs:
+                sc.percent_of_total = (
+                    sc.total_cost.expected / total_expected * 100.0
+                )
+
+        total_area = space_program.total_area_sf
+        avg_cost_per_sf = total_expected / total_area if total_area > 0 else 0.0
+
+        total_cost = CostRange(
+            low=total_low,
+            expected=total_expected,
+            high=total_high,
+        )
+        cost_per_sf = CostRange(
+            low=total_low / total_area if total_area > 0 else 0.0,
+            expected=avg_cost_per_sf,
+            high=total_high / total_area if total_area > 0 else 0.0,
+        )
+
+        return total_cost, cost_per_sf, space_costs
 
     def _calculate_complexity_multiplier(self, building: BuildingModel) -> float:
         """Calculate the weighted complexity multiplier from complexity scores."""
