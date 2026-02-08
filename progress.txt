@@ -22,6 +22,9 @@
 - Pipeline wraps errors from each stage into typed exceptions — don't double-wrap if already the correct type
 - Use `TYPE_CHECKING` block for imports only used in type annotations (TC001/TC003) — runtime imports stay outside
 - `AnalysisContext` from `vlm_analyzer` is used at runtime (instantiated in pipeline) — keep outside TYPE_CHECKING
+- FastAPI `app.state` attributes are dynamically typed — mypy doesn't need `type: ignore[attr-defined]` comments
+- Use `create_app(pipeline=mock)` factory pattern for test dependency injection — no env vars needed
+- FastAPI TestClient for sync tests: `client.post("/api/analyze", files=..., data=...)` for multipart form
 
 ---
 
@@ -87,5 +90,21 @@
   - `time.monotonic()` for timing (not `time.time()`) — monotonic is not affected by system clock changes
   - `finally` block ensures cleanup even on exceptions — check `pdf_result is not None` before calling cleanup
   - Use `MagicMock(spec=ClassName)` for service mocks in tests — catches wrong method names
+---
+
+## 2026-02-07 - US-105
+- What was implemented: FastAPI backend — create_app factory with POST /api/analyze (multipart PDF upload + form fields) and GET /api/health endpoints, CORS for localhost:3000, dependency injection module.
+- Files changed:
+  - `backend/pyproject.toml` — added fastapi, uvicorn, python-multipart dependencies
+  - `backend/cantena/api/__init__.py` — new API package
+  - `backend/cantena/api/deps.py` — create_pipeline() factory reading ANTHROPIC_API_KEY from env
+  - `backend/cantena/api/app.py` — create_app factory, /api/health (200), /api/analyze (multipart form → PipelineResult JSON with estimate, summary_dict, export_dict)
+  - `backend/tests/test_api.py` — 10 tests: health 200, analyze 200 with mocked pipeline, location passthrough, summary_dict/export_dict in response, non-PDF 400, missing fields 422, missing file 422, pipeline errors 500
+- **Learnings for future iterations:**
+  - FastAPI `app.state` is dynamically typed — mypy doesn't require `type: ignore[attr-defined]` for attribute access
+  - `create_app(pipeline=mock)` factory pattern eliminates need for env vars in tests
+  - With `from __future__ import annotations`, `AnalysisPipeline` in type annotations is string-evaluated — can use `TYPE_CHECKING` block
+  - FastAPI TestClient: use `files={"file": (name, io, content_type)}` and `data={...}` for multipart form posts
+  - CantenaError hierarchy maps cleanly to HTTP status codes: custom pipeline errors → 500, FastAPI validation → 422, explicit file checks → 400
 ---
 

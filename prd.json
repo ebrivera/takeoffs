@@ -105,7 +105,7 @@
         "Typecheck passes"
       ],
       "priority": 5,
-      "passes": false,
+      "passes": true,
       "notes": "create_app factory pattern allows tests to inject mocked dependencies without env vars. Keep API surface minimal for MVP: one endpoint that does everything. summary_dict/export_dict from PRD 1 US-008 included in response so frontend doesn't reformat."
     },
     {
