@@ -9,6 +9,8 @@
 - Union-find clustering for endpoint snapping (O(n²) pairwise, KDTree upgrade path documented)
 - mypy runs slow on first invocation — use `--no-incremental` if it hangs
 - Use `.venv/bin/ruff` and `.venv/bin/mypy` directly (not `python3 -m`)
+- `dataclasses.replace()` for updating frozen dataclass instances (not `dataclasses.asdict()` + constructor)
+- Room label matching uses `_ROOM_NAMES` frozenset with longest-first substring matching
 
 ---
 
@@ -137,5 +139,19 @@
   - Area conversion: `area_sf = area_pts / (72^2) * scale_factor^2 / 144`; Perimeter: `perimeter_lf = perimeter_pts / 72 * scale_factor / 12`
   - `_convex_hull_fallback()` returns `polygonize_success=False` so downstream code can distinguish accurate room-based area from approximate hull area
   - `unary_union(lines)` before `polygonize()` is essential — it nodes intersections so polygonize can find closed loops
+---
+
+## 2026-02-08 - US-373
+- What was implemented: Room label matching in `cantena/geometry/rooms.py` — `RoomDetector.label_rooms()` method that associates text labels with detected room polygons. Uses a curated `_ROOM_NAMES` frozenset (37 common room names), case-insensitive matching with whitespace normalization, Shapely polygon containment checks, nearest-centroid fallback within 50pts, and duplicate label indexing (e.g. BEDROOM 1, BEDROOM 2). Uses `dataclasses.replace()` to create new frozen DetectedRoom instances with labels.
+- Files changed:
+  - `backend/cantena/geometry/rooms.py` — added `_ROOM_NAMES` frozenset, `_MAX_LABEL_DISTANCE_PTS` constant, `_normalize_label_text()`, `_match_room_name()` helpers, `RoomDetector.label_rooms()` method; added `re` and `replace` imports; added `TextBlock` to TYPE_CHECKING block
+  - `backend/tests/test_room_labels.py` — new file: 9 tests across 8 test classes (TestLabelInsidePolygon, TestLabelOutsideAssignsNearest, TestNonRoomTextIgnored, TestUnlabeledRoomsRemainNone, TestDuplicateNamesGetIndexed, TestCaseInsensitiveMatching, TestEmptyInputs, TestSubstringMatch)
+  - `prd.json` — US-373 passes: true
+- **Learnings for future iterations:**
+  - Shapely `poly.contains(pt)` returns False for points exactly on boundary — use `poly.boundary.distance(pt) < 1.0` as fallback
+  - Ruff SIM102 requires combining nested `if` statements with `and` instead of nesting
+  - For "outside label assigns to nearest" tests, room centroid must be within 50pts of the outside label position — large rooms have centroids far from edges
+  - Shapely coordinate sequences yield `tuple[float, ...]` not `tuple[float, float]` — must cast explicitly for mypy --strict
+  - `dataclasses.replace()` is the clean way to update frozen dataclass fields
 ---
 

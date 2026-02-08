@@ -18,12 +18,14 @@ Workflow:
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass, field
+import re
+from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from shapely.geometry import Polygon as ShapelyPolygon
 
+    from cantena.geometry.scale import TextBlock
     from cantena.geometry.walls import WallSegment
 
 from cantena.geometry.extractor import Point2D
@@ -37,6 +39,50 @@ _MAX_PAGE_AREA_FRACTION = 0.80
 
 # Extension length in PDF points added to each segment endpoint.
 _SEGMENT_EXTENSION_PTS = 1.0
+
+# Maximum distance (pts) to assign an outside label to nearest centroid.
+_MAX_LABEL_DISTANCE_PTS = 50.0
+
+# Curated list of common architectural room names (case-insensitive match).
+_ROOM_NAMES: frozenset[str] = frozenset({
+    "LIVING ROOM",
+    "KITCHEN",
+    "DINING",
+    "DINING ROOM",
+    "BEDROOM",
+    "BATHROOM",
+    "RESTROOM",
+    "WC",
+    "UTILITY",
+    "LAUNDRY",
+    "CORRIDOR",
+    "HALLWAY",
+    "CLOSET",
+    "STORAGE",
+    "OFFICE",
+    "CONFERENCE",
+    "LOBBY",
+    "ENTRY",
+    "FOYER",
+    "GARAGE",
+    "PORCH",
+    "FRONT PORCH",
+    "BACK PORCH",
+    "DECK",
+    "MECHANICAL",
+    "MASTER BEDROOM",
+    "MASTER BATH",
+    "FAMILY ROOM",
+    "DEN",
+    "STUDY",
+    "PANTRY",
+    "MUDROOM",
+    "SUNROOM",
+    "BREAKFAST",
+    "NOOK",
+    "COATS",
+    "LINEN",
+})
 
 
 @dataclass(frozen=True)
@@ -63,6 +109,26 @@ class RoomAnalysis:
     room_count: int = 0
     outer_boundary_polygon: list[tuple[float, float]] | None = None
     polygonize_success: bool = False
+
+
+def _normalize_label_text(text: str) -> str:
+    """Normalize text for room label matching.
+
+    Collapses newlines and extra whitespace, strips, uppercases.
+    """
+    return re.sub(r"\s+", " ", text).strip().upper()
+
+
+def _match_room_name(text: str) -> str | None:
+    """Return the matched room name if *text* contains a known room name."""
+    normalized = _normalize_label_text(text)
+    # Try exact match first, then substring match (longest first).
+    if normalized in _ROOM_NAMES:
+        return normalized
+    for name in sorted(_ROOM_NAMES, key=len, reverse=True):
+        if name in normalized:
+            return name
+    return None
 
 
 def _extend_segment(
@@ -257,4 +323,111 @@ class RoomDetector:
             room_count=len(rooms),
             outer_boundary_polygon=outer_boundary,
             polygonize_success=True,
+        )
+
+    def label_rooms(
+        self,
+        rooms: RoomAnalysis,
+        text_blocks: list[TextBlock],
+    ) -> RoomAnalysis:
+        """Associate room labels from text blocks with detected room polygons.
+
+        For each text block that matches a known room name:
+          1. Check if the text position falls inside a room polygon.
+          2. If not, assign to the nearest centroid within 50 pts.
+
+        Duplicate labels get an index suffix (e.g. BEDROOM 1, BEDROOM 2).
+
+        Parameters
+        ----------
+        rooms:
+            The ``RoomAnalysis`` from ``detect_rooms()``.
+        text_blocks:
+            Text blocks extracted from the PDF page.
+
+        Returns
+        -------
+        A new ``RoomAnalysis`` with labels assigned to rooms.
+        """
+        from shapely.geometry import Point, Polygon
+
+        if not rooms.rooms or not text_blocks:
+            return rooms
+
+        # Build Shapely polygons for containment checks.
+        shapely_polys: list[Polygon] = [
+            Polygon(r.polygon_pts) for r in rooms.rooms
+        ]
+
+        # Track which rooms already have a label assigned.
+        labels: dict[int, str] = {}
+
+        # Collect matched (room_name, room_index) pairs for dedup.
+        matched_labels: list[tuple[str, int]] = []
+
+        for tb in text_blocks:
+            room_name = _match_room_name(tb.text)
+            if room_name is None:
+                continue
+
+            pt = Point(tb.position.x, tb.position.y)
+
+            # 1. Check containment.
+            assigned_idx: int | None = None
+            for i, poly in enumerate(shapely_polys):
+                if (
+                    poly.contains(pt) or poly.boundary.distance(pt) < 1.0
+                ) and i not in labels:
+                    assigned_idx = i
+                    break
+
+            # 2. Fallback: nearest centroid within threshold.
+            if assigned_idx is None:
+                best_dist = _MAX_LABEL_DISTANCE_PTS
+                for i, room in enumerate(rooms.rooms):
+                    if i in labels:
+                        continue
+                    dist = math.hypot(
+                        tb.position.x - room.centroid.x,
+                        tb.position.y - room.centroid.y,
+                    )
+                    if dist < best_dist:
+                        best_dist = dist
+                        assigned_idx = i
+
+            if assigned_idx is not None:
+                labels[assigned_idx] = room_name
+                matched_labels.append((room_name, assigned_idx))
+
+        # Handle duplicate labels: append index suffix.
+        name_counts: dict[str, int] = {}
+        for name, _ in matched_labels:
+            name_counts[name] = name_counts.get(name, 0) + 1
+
+        # For names appearing more than once, renumber them.
+        name_seen: dict[str, int] = {}
+        final_labels: dict[int, str] = {}
+        for name, idx in matched_labels:
+            if name_counts[name] > 1:
+                ordinal = name_seen.get(name, 0) + 1
+                name_seen[name] = ordinal
+                final_labels[idx] = f"{name} {ordinal}"
+            else:
+                final_labels[idx] = name
+
+        # Build updated rooms list.
+        updated_rooms = [
+            replace(r, label=final_labels.get(r.room_index))
+            if r.room_index in final_labels
+            else r
+            for r in rooms.rooms
+        ]
+
+        return RoomAnalysis(
+            rooms=updated_rooms,
+            total_area_pts=rooms.total_area_pts,
+            total_area_sf=rooms.total_area_sf,
+            room_count=rooms.room_count,
+            outer_boundary_polygon=rooms.outer_boundary_polygon,
+            polygonize_success=rooms.polygonize_success,
         )

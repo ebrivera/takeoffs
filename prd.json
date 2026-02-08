@@ -53,7 +53,7 @@
         "Typecheck passes"
       ],
       "priority": 3,
-      "passes": false,
+      "passes": true,
       "notes": "This is 'no-AI room naming' using spatial containment + a curated vocabulary."
     },
     {
