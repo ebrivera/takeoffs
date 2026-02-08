@@ -94,7 +94,7 @@
         "Typecheck passes"
       ],
       "priority": 5,
-      "passes": false,
+      "passes": true,
       "notes": "This makes scale robust without 'AI-everything.' The LLM is a guardrail and recovery tool for the one place where being wrong explodes downstream."
     },
     {
