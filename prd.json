@@ -128,7 +128,7 @@
         "Verify in browser using dev-browser skill"
       ],
       "priority": 6,
-      "passes": false,
+      "passes": true,
       "notes": "Loading states are important — processing takes 15-30 seconds. Staged progress messages build anticipation and trust. Keep form simple: project name + location + file. Don't add fields the VLM extracts."
     },
     {

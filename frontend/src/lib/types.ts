@@ -145,3 +145,19 @@ export interface CostEstimate {
   location_factor: number;
   metadata: EstimateMetadata;
 }
+
+// ── API response (matching FastAPI /api/analyze response) ──────────────────
+
+export interface AnalysisInfo {
+  reasoning: string;
+  warnings: string[];
+}
+
+export interface AnalyzeResponse {
+  estimate: CostEstimate;
+  summary_dict: Record<string, string>;
+  export_dict: Record<string, unknown>;
+  analysis: AnalysisInfo;
+  processing_time_seconds: number;
+  pages_analyzed: number;
+}

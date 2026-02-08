@@ -1,4 +1,7 @@
 ## Codebase Patterns
+- Use `<Link>` from `next/link` for internal navigation — ESLint `@next/next/no-html-link-for-pages` rule forbids `<a href="/">`
+- `AnalyzeResponse` type in `types.ts` wraps the full backend response (estimate + analysis + metadata)
+- Tailwind v4 uses `@theme inline` and CSS custom properties — reference with `var(--color-navy-xxx)` in className
 - Python 3.11+ with pydantic v2 for domain models
 - Project lives in `backend/` — source in `backend/cantena/`, tests in `backend/tests/`
 - Quality gates: `pytest`, `mypy --strict cantena`, `ruff check cantena tests` (run from backend/ with venv activated)
@@ -106,5 +109,20 @@
   - With `from __future__ import annotations`, `AnalysisPipeline` in type annotations is string-evaluated — can use `TYPE_CHECKING` block
   - FastAPI TestClient: use `files={"file": (name, io, content_type)}` and `data={...}` for multipart form posts
   - CantenaError hierarchy maps cleanly to HTTP status codes: custom pipeline errors → 500, FastAPI validation → 422, explicit file checks → 400
+---
+
+## 2026-02-07 - US-106
+- What was implemented: Upload UI — full /analyze page with drag-and-drop PDF upload, project name/city/state form, staged loading progress, error state with retry, and results view (header, division breakdown, collapsible assumptions, AI reasoning, metadata footer).
+- Files changed:
+  - `frontend/src/lib/types.ts` — added AnalysisInfo and AnalyzeResponse interfaces for full backend response
+  - `frontend/src/lib/api.ts` — updated return type from CostEstimate to AnalyzeResponse, removed TODO comment
+  - `frontend/src/app/analyze/page.tsx` — complete rewrite: upload form with drag-and-drop, form fields, loading states with staged progress, error handling, ResultsView with division table/assumptions/AI reasoning/metadata, DisclosurePanel and ConfidenceBadge components
+- **Learnings for future iterations:**
+  - Use `<Link>` from `next/link` for internal navigation — ESLint no-html-link-for-pages rule enforces this
+  - Tailwind v4 CSS custom properties: use `var(--color-navy-xxx)` in arbitrary value syntax `[var(--color-navy-xxx)]`
+  - `AnalyzeResponse` wraps the full backend response — estimate, summary_dict, export_dict, analysis (reasoning/warnings), processing_time_seconds, pages_analyzed
+  - Staged loading progress uses setTimeout timers that are cleared in `finally` block to avoid stale state updates
+  - File validation happens client-side (PDF extension + 50MB size) before API call
+  - Results view sorts divisions by cost descending and highlights top 3 with subtle background color
 ---
 

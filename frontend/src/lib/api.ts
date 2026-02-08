@@ -2,7 +2,7 @@
  * Typed fetch wrappers for the Cantena API.
  */
 
-import type { CostEstimate } from "@/lib/types";
+import type { AnalyzeResponse } from "@/lib/types";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
@@ -14,14 +14,13 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 export async function analyzePlan(
   file: File,
   location: { projectName: string; city: string; state: string },
-): Promise<CostEstimate> {
+): Promise<AnalyzeResponse> {
   const form = new FormData();
   form.append("file", file);
   form.append("project_name", location.projectName);
   form.append("city", location.city);
   form.append("state", location.state);
 
-  // TODO: Wire up to backend POST /api/analyze once US-105 is implemented
   const res = await fetch(`${API_BASE}/api/analyze`, {
     method: "POST",
     body: form,
@@ -36,5 +35,5 @@ export async function analyzePlan(
     throw new Error(message);
   }
 
-  return (await res.json()) as CostEstimate;
+  return (await res.json()) as AnalyzeResponse;
 }
