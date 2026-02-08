@@ -8,6 +8,7 @@ import type {
   BuildingModel,
   CostEstimate,
   Confidence,
+  SpaceCost,
 } from "@/lib/types";
 import {
   BuildingType,
@@ -501,6 +502,10 @@ function ResultsView({
 
   const estimate = showingAdjusted && adjustedEstimate ? adjustedEstimate : originalEstimate;
 
+  // Space breakdown: prefer estimate-level, fall back to top-level analyze response
+  const spaceBreakdown: SpaceCost[] | null =
+    estimate.space_breakdown ?? result.space_breakdown ?? null;
+
   const handleRecalculate = useCallback(async () => {
     setRecalculating(true);
     setRecalcError(null);
@@ -596,6 +601,14 @@ function ResultsView({
         recalculating={recalculating}
         recalcError={recalcError}
         onRecalculate={handleRecalculate}
+      />
+
+      {/* Space Program */}
+      <SpaceProgramSection
+        spaceBreakdown={spaceBreakdown}
+        roomDetectionMethod={result.room_detection_method}
+        fmt={fmt}
+        fmtSf={fmtSf}
       />
 
       {/* Division breakdown */}
@@ -710,6 +723,226 @@ function ResultsView({
         <span>Location Factor: {estimate.location_factor.toFixed(2)}</span>
       </div>
     </section>
+  );
+}
+
+// ── Source indicator icons ──────────────────────────────────────────────────
+
+const SOURCE_META: Record<string, { label: string; tip: string }> = {
+  geometry: { label: "Measured", tip: "Detected from floor plan geometry" },
+  llm: { label: "AI", tip: "Interpreted by AI model" },
+  assumed: { label: "Assumed", tip: "Default distribution based on building type" },
+  user_override: { label: "Edited", tip: "Modified by user" },
+};
+
+function SourceIcon({ source }: { source: string }) {
+  const meta = SOURCE_META[source] ?? SOURCE_META.assumed;
+
+  const icon = (() => {
+    switch (source) {
+      // Tape measure — geometry/measured
+      case "geometry":
+        return (
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+            <rect x="1" y="4" width="14" height="8" rx="1" stroke="currentColor" strokeWidth="1.2" />
+            <line x1="4" y1="4" x2="4" y2="7" stroke="currentColor" strokeWidth="1" />
+            <line x1="7" y1="4" x2="7" y2="8" stroke="currentColor" strokeWidth="1" />
+            <line x1="10" y1="4" x2="10" y2="7" stroke="currentColor" strokeWidth="1" />
+            <line x1="13" y1="4" x2="13" y2="7" stroke="currentColor" strokeWidth="1" />
+          </svg>
+        );
+      // Brain — LLM
+      case "llm":
+        return (
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+            <path
+              d="M5 13V11C3.34 11 2 9.66 2 8s1.34-3 3-3V3.5C5 2.67 5.67 2 6.5 2S8 2.67 8 3.5V5c1.66 0 3 1.34 3 3s-1.34 3-3 3v2"
+              stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"
+            />
+            <path
+              d="M11 8c1.1 0 2-.9 2-2s-.9-2-2-2"
+              stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"
+            />
+            <circle cx="6" cy="8" r="1" fill="currentColor" />
+          </svg>
+        );
+      // Dashed circle — assumed
+      case "assumed":
+        return (
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+            <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="1.2" strokeDasharray="3 2" />
+          </svg>
+        );
+      // Pencil — user override
+      case "user_override":
+        return (
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+            <path
+              d="M11.5 2.5l2 2L5 13H3v-2l8.5-8.5z"
+              stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"
+            />
+          </svg>
+        );
+      default:
+        return null;
+    }
+  })();
+
+  return (
+    <span className="group relative inline-flex items-center text-[var(--color-navy-400)]" title={meta.tip}>
+      {icon}
+    </span>
+  );
+}
+
+// Human-readable room type labels
+const ROOM_TYPE_LABELS: Record<string, string> = {
+  living_room: "Living Room",
+  kitchen: "Kitchen",
+  dining: "Dining",
+  bedroom: "Bedroom",
+  bathroom: "Bathroom",
+  restroom: "Restroom",
+  wc: "WC",
+  utility: "Utility",
+  laundry: "Laundry",
+  closet: "Closet",
+  porch: "Porch",
+  lobby: "Lobby",
+  open_office: "Open Office",
+  private_office: "Private Office",
+  conference: "Conference",
+  corridor: "Corridor",
+  kitchen_break: "Kitchen/Break",
+  mechanical_room: "Mechanical",
+  storage: "Storage",
+  retail_sales: "Retail Sales",
+  classroom: "Classroom",
+  lab: "Lab",
+  patient_room: "Patient Room",
+  operating_room: "Operating Room",
+  warehouse_storage: "Warehouse",
+  loading_dock: "Loading Dock",
+  common_area: "Common Area",
+  stairwell_elevator: "Stairwell/Elevator",
+  parking: "Parking",
+  garage: "Garage",
+  entry: "Entry",
+  foyer: "Foyer",
+  hallway: "Hallway",
+  other: "Other",
+};
+
+function formatRoomType(roomType: string): string {
+  return ROOM_TYPE_LABELS[roomType] ?? roomType.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+// ── Space Program Section ──────────────────────────────────────────────────
+
+function SpaceProgramSection({
+  spaceBreakdown,
+  roomDetectionMethod,
+  fmt,
+  fmtSf,
+}: {
+  spaceBreakdown: SpaceCost[] | null;
+  roomDetectionMethod?: string;
+  fmt: (n: number) => string;
+  fmtSf: (n: number) => string;
+}) {
+  const methodLabel =
+    roomDetectionMethod === "polygonize"
+      ? "Geometry-detected rooms"
+      : roomDetectionMethod === "llm_only"
+        ? "AI-interpreted rooms"
+        : "Assumed distribution";
+
+  return (
+    <div className="rounded-lg border border-[var(--color-navy-700)] bg-[var(--color-navy-900)] p-6">
+      <div className="mb-4 flex items-center justify-between">
+        <h3 className="text-sm font-semibold uppercase tracking-wider text-[var(--color-navy-300)]">
+          Space Program
+        </h3>
+        {roomDetectionMethod && (
+          <span className="rounded border border-[var(--color-navy-700)] bg-[var(--color-navy-800)] px-2 py-0.5 text-[10px] font-medium text-[var(--color-navy-400)]">
+            {methodLabel}
+          </span>
+        )}
+      </div>
+
+      {spaceBreakdown && spaceBreakdown.length > 0 ? (
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-sm">
+            <thead>
+              <tr className="border-b border-[var(--color-navy-700)]">
+                <th className="pb-2 pr-4 font-mono text-xs font-medium uppercase tracking-wider text-[var(--color-navy-500)]">
+                  Room
+                </th>
+                <th className="pb-2 pr-4 font-mono text-xs font-medium uppercase tracking-wider text-[var(--color-navy-500)]">
+                  Type
+                </th>
+                <th className="pb-2 pr-4 text-right font-mono text-xs font-medium uppercase tracking-wider text-[var(--color-navy-500)]">
+                  Area (SF)
+                </th>
+                <th className="pb-2 pr-4 text-right font-mono text-xs font-medium uppercase tracking-wider text-[var(--color-navy-500)]">
+                  $/SF
+                </th>
+                <th className="pb-2 pr-4 text-right font-mono text-xs font-medium uppercase tracking-wider text-[var(--color-navy-500)]">
+                  Total
+                </th>
+                <th className="pb-2 pr-4 text-right font-mono text-xs font-medium uppercase tracking-wider text-[var(--color-navy-500)]">
+                  %
+                </th>
+                <th className="pb-2 text-center font-mono text-xs font-medium uppercase tracking-wider text-[var(--color-navy-500)]">
+                  Src
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {[...spaceBreakdown]
+                .sort((a, b) => b.total_cost.expected - a.total_cost.expected)
+                .map((space, i) => (
+                  <tr
+                    key={`${space.name}-${i}`}
+                    className="border-b border-[var(--color-navy-700)]/50"
+                  >
+                    <td className="py-2.5 pr-4 text-[var(--color-navy-200)]">
+                      {space.name}
+                    </td>
+                    <td className="py-2.5 pr-4 text-[var(--color-navy-400)]">
+                      {formatRoomType(space.room_type)}
+                    </td>
+                    <td className="py-2.5 pr-4 text-right font-mono text-white">
+                      {Math.round(space.area_sf).toLocaleString()}
+                    </td>
+                    <td className="py-2.5 pr-4 text-right font-mono text-[var(--color-navy-300)]">
+                      {fmtSf(space.cost_per_sf.expected)}
+                    </td>
+                    <td className="py-2.5 pr-4 text-right font-mono text-white">
+                      {fmt(space.total_cost.expected)}
+                    </td>
+                    <td className="py-2.5 pr-4 text-right font-mono text-[var(--color-navy-400)]">
+                      {space.percent_of_total.toFixed(1)}%
+                    </td>
+                    <td className="py-2.5 text-center">
+                      <SourceIcon source={space.source} />
+                    </td>
+                  </tr>
+                ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <div className="rounded border border-[var(--color-navy-700)]/50 bg-[var(--color-navy-800)]/50 px-4 py-6 text-center">
+          <p className="text-sm text-[var(--color-navy-400)]">
+            No room-level breakdown available. The estimate uses a whole-building cost rate.
+          </p>
+          <p className="mt-1 text-xs text-[var(--color-navy-500)]">
+            Upload a detailed floor plan with room labels for per-room cost analysis.
+          </p>
+        </div>
+      )}
+    </div>
   );
 }
 

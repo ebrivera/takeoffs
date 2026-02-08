@@ -134,6 +134,16 @@ export interface EstimateMetadata {
   estimation_method: string;
 }
 
+export interface SpaceCost {
+  room_type: string;
+  name: string;
+  area_sf: number;
+  cost_per_sf: CostRange;
+  total_cost: CostRange;
+  percent_of_total: number;
+  source: string;
+}
+
 export interface CostEstimate {
   project_name: string;
   building_summary: BuildingSummary;
@@ -144,6 +154,7 @@ export interface CostEstimate {
   generated_at: string;
   location_factor: number;
   metadata: EstimateMetadata;
+  space_breakdown?: SpaceCost[] | null;
 }
 
 // ── API response (matching FastAPI /api/analyze response) ──────────────────
@@ -161,4 +172,8 @@ export interface AnalyzeResponse {
   analysis: AnalysisInfo;
   processing_time_seconds: number;
   pages_analyzed: number;
+  space_breakdown?: SpaceCost[];
+  geometry_available?: boolean;
+  measurement_confidence?: string;
+  room_detection_method?: string;
 }
