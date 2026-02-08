@@ -70,6 +70,18 @@ class EstimateMetadata(BaseModel):
     estimation_method: str = "square_foot_conceptual"
 
 
+class SpaceCost(BaseModel):
+    """Cost breakdown for a single space in a room-type-aware estimate."""
+
+    room_type: str
+    name: str
+    area_sf: float
+    cost_per_sf: CostRange
+    total_cost: CostRange
+    percent_of_total: float
+    source: str
+
+
 class CostEstimate(BaseModel):
     """Complete cost estimate output from the Cantena engine.
 
@@ -86,6 +98,7 @@ class CostEstimate(BaseModel):
     generated_at: datetime = Field(default_factory=datetime.now)
     location_factor: float
     metadata: EstimateMetadata
+    space_breakdown: list[SpaceCost] | None = None
 
     def to_summary_dict(self) -> dict[str, Any]:
         """Produce a flat summary dict for frontend consumption.

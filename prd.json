@@ -36,7 +36,7 @@
         "`ruff check cantena tests` passes"
       ],
       "priority": 2,
-      "passes": false,
+      "passes": true,
       "notes": "This is the bridge between PRD 3.75 (DetectedRoom polygons) and room pricing. The mapping handles label variance (e.g., 'WC' vs 'BATHROOM', 'COATS' as closet). SpaceSource has four values: GEOMETRY, LLM, ASSUMED, USER_OVERRIDE. Depends on US-401 for RoomType enum."
     },
     {
@@ -54,7 +54,7 @@
         "`ruff check cantena tests` passes"
       ],
       "priority": 3,
-      "passes": false,
+      "passes": true,
       "notes": "SpaceCost includes a source field so frontend can show where each room came from. Unmapped rooms must not break pricing. Depends on US-401 (room cost data) and US-402 (SpaceProgram model)."
     },
     {

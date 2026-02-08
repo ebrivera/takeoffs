@@ -22,6 +22,10 @@
 - `RoomType` StrEnum in `cantena.models.enums` — 35 room types covering residential, commercial, education, healthcare, industrial
 - `RoomTypeCost` Pydantic model in `cantena.data.room_costs` — room-level cost data with cost_drivers and typical_percent_of_building
 - Building type → room cost category mapping: `_RESIDENTIAL_TYPES`, `_OFFICE_TYPES`, `_SCHOOL_TYPES` frozensets in `room_costs.py`
+- `SpaceProgram` Pydantic model in `cantena.models.space_program` — bridges DetectedRoom/LLM/assumed to cost engine
+- `LABEL_TO_ROOM_TYPE` dict in `space_program.py` maps drawing labels (e.g., "COATS") to RoomType enum
+- `SpaceSource` StrEnum: GEOMETRY, LLM, ASSUMED, USER_OVERRIDE — tracks provenance of each Space
+- Pydantic mutable models allow direct field assignment (`space.source = SpaceSource.USER_OVERRIDE`) unlike frozen dataclasses
 
 ---
 
@@ -255,5 +259,37 @@
   - Building type category mapping uses `frozenset` for efficient membership testing
   - Seed data typical_percent_of_building values must sum to 90-110% per category (AC requirement)
   - `get_room_costs_for_building_type()` is the free function; `CostDataRepository.get_room_type_costs()` is the repository method that delegates to it
+---
+
+## 2026-02-08 - US-402
+- What was implemented: Space program model with DetectedRoom bridge — `SpaceProgram` Pydantic model in `cantena/models/space_program.py` with three factory classmethods (`from_detected_rooms`, `from_llm_interpretation`, `from_building_model`), `Space` model with room_type/name/area_sf/count/source/confidence fields, `SpaceSource` StrEnum, and `LABEL_TO_ROOM_TYPE` mapping dict. `update_space()` method for user overrides.
+- Files changed:
+  - `backend/cantena/models/space_program.py` — new module: `SpaceSource` StrEnum, `LABEL_TO_ROOM_TYPE` dict (37 label mappings), `Space` Pydantic model, `SpaceProgram` Pydantic model with `total_area_sf` computed property, `from_detected_rooms()`, `from_llm_interpretation()`, `from_building_model()`, `update_space()`
+  - `backend/cantena/models/__init__.py` — exported `Space`, `SpaceProgram`, `SpaceSource`
+  - `backend/tests/test_space_program.py` — 21 tests across 7 test classes (TestFromDetectedRoomsBasic, TestLabelMappings, TestUnlabeledRoom, TestFromBuildingModel, TestFromLlmInterpretation, TestTotalAreaSf, TestUpdateSpace)
+  - `prd.json` — US-402 passes: true
+- **Learnings for future iterations:**
+  - `BuildingModel` imported in `TYPE_CHECKING` block (not at runtime) since `from __future__ import annotations` makes annotations strings — but must NOT use `# noqa: TCH001` or ruff F821 fires
+  - Pydantic models are mutable by default — `update_space()` can directly assign fields unlike frozen dataclasses
+  - `LlmRoomInterpretation.room_type_enum` is a string like "LIVING_ROOM" — convert with `RoomType(value.lower())` since RoomType uses lowercase values
+  - Label-to-RoomType mapping strips numeric suffix (e.g., "BEDROOM 1" → look up "BEDROOM") via `rsplit(" ", 1)[0]`
+  - `from_building_model` uses deferred import of `get_room_costs_for_building_type` to avoid circular imports between models and data layers
+---
+
+## 2026-02-08 - US-403
+- What was implemented: Room-type-aware cost engine — `CostEngine.estimate()` extended with optional `space_program: SpaceProgram | None` parameter. When provided, each Space is priced using room-type-specific $/SF from RoomTypeCost data, with location factor and complexity multipliers applied per-room. `SpaceCost` Pydantic model added to `estimate.py` with fields: room_type, name, area_sf, cost_per_sf (CostRange), total_cost (CostRange), percent_of_total, source. `CostEstimate` extended with `space_breakdown: list[SpaceCost] | None`. Unmapped room types (e.g., LOADING_DOCK in residential context) fall back to whole-building $/SF rate. Space.count multiplier correctly scales area. Without SpaceProgram, existing behavior is completely preserved.
+- Files changed:
+  - `backend/cantena/models/estimate.py` — added `SpaceCost` model; added `space_breakdown` optional field to `CostEstimate`
+  - `backend/cantena/engine.py` — extended `estimate()` signature with `space_program` param; added `_estimate_with_space_program()` private method; imported `SpaceCost` and `SpaceProgram` (TYPE_CHECKING)
+  - `backend/cantena/models/__init__.py` — exported `SpaceCost`
+  - `backend/tests/test_engine_rooms.py` — 15 tests across 7 test classes (TestResidentialRoomPricing, TestOfficeRoomPricing, TestTotalCostConsistency, TestBackwardCompatibility, TestOtherRoomTypeFallback, TestSourceTracking, TestSpaceCountMultiplier)
+  - `prd.json` — US-403 passes: true
+- **Learnings for future iterations:**
+  - `_estimate_with_space_program()` uses deferred import of `get_room_costs_for_building_type` to avoid circular imports
+  - Room cost lookup builds `cost_by_room_type` dict from `RoomTypeCost` list for O(1) per-space lookups
+  - Fallback for unmapped room types uses the whole-building adjusted $/SF with standard 0.80/1.25 range factors
+  - `SpaceCost.source` is a plain `str` (not SpaceSource enum) — maps from `Space.source.value` for JSON-friendly output
+  - `percent_of_total` is computed in a second pass after all room costs are summed
+  - `cost_per_sf` for the overall estimate uses weighted average (total_cost / total_area) when SpaceProgram is provided
 ---
 

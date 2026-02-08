@@ -18,6 +18,7 @@ from cantena.models.estimate import (
     CostRange,
     DivisionCost,
     EstimateMetadata,
+    SpaceCost,
 )
 from cantena.models.space_program import Space, SpaceProgram, SpaceSource
 
@@ -38,6 +39,7 @@ __all__ = [
     "Location",
     "MechanicalSystem",
     "RoomType",
+    "SpaceCost",
     "Space",
     "SpaceProgram",
     "SpaceSource",
