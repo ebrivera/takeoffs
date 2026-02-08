@@ -342,3 +342,16 @@
   - Integration test fixtures use `Generator` return type for yield fixtures that need cleanup
 ---
 
+## 2026-02-08 - US-352
+- What was implemented: Integration tests validating VectorExtractor against the real first-floor.pdf — verifies path count (>=50), line/rect stats, bounding box coverage (>=50% width, >=40% height), line width distribution (>=2 distinct widths), stroke color majority, filter_by_region reduction, and rasterized PDF skip fallback.
+- Files changed:
+  - `backend/tests/integration/test_first_floor_vectors.py` — 8 tests across TestVectorExtraction (7 tests) and TestRasterizedFallback (1 test)
+  - `prd.json` — US-352 passes: true
+- **Learnings for future iterations:**
+  - VectorExtractor on first-floor.pdf extracts hundreds of paths — PDF has rich vector data, not rasterized
+  - Line width distribution is logged for debugging wall detection thresholds — useful for US-354 tuning
+  - `Counter[float]` typing works cleanly for counting line width occurrences
+  - f-strings without placeholders trigger ruff F541 — use plain strings for static text
+  - Integration tests with `print()` output need `-s` flag to see during development, but pass without it
+---
+

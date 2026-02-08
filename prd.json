@@ -35,7 +35,7 @@
         "All quality gates pass (pytest, mypy --strict, ruff check)"
       ],
       "priority": 2,
-      "passes": false,
+      "passes": true,
       "notes": "This is the 'does the PDF have what we need' test. Line width distribution is valuable debugging info for wall detection thresholds."
     },
     {
