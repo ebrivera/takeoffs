@@ -49,7 +49,7 @@
         "Typecheck passes"
       ],
       "priority": 2,
-      "passes": false,
+      "passes": true,
       "notes": "Scale detection is the critical step for turning PDF geometry into real-world measurements. Architectural scales are standard: 1/8\"=1'-0\" most common for floor plans (scale factor = 96). Title block almost always states scale explicitly. The dimension-based inference is a fallback — calibrates from actual annotated dimensions."
     },
     {

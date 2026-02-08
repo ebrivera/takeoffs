@@ -3,7 +3,7 @@
 - PyMuPDF `get_drawings()` "re" items have 3 elements: `("re", Rect, orientation_flag)` — check `len(item) >= 2` not `== 2`
 - PyMuPDF drawing dict values are typed `object` — use `isinstance(raw, (int, float))` guard before `float()` for mypy strict
 - Geometry models use frozen dataclasses (not Pydantic) for internal service types — consistent with pipeline.py pattern
-- `cantena/geometry/` package: `extractor.py` (VectorExtractor, DrawingData, VectorPath, Point2D, BoundingRect, PathType)
+- `cantena/geometry/` package: `extractor.py` (VectorExtractor, DrawingData, VectorPath, Point2D, BoundingRect, PathType), `scale.py` (ScaleDetector, ScaleResult, TextBlock, Confidence, parse_dimension_string)
 - `AnalyzeResponse` type in `types.ts` wraps the full backend response (estimate + analysis + metadata)
 - Tailwind v4 uses `@theme inline` and CSS custom properties — reference with `var(--color-navy-xxx)` in className
 - Python 3.11+ with pydantic v2 for domain models
@@ -225,5 +225,20 @@
   - `shape.draw_rect()` + `shape.finish()` + `shape.commit()` is the correct PyMuPDF sequence for creating test PDFs with known geometry.
   - Ruff E741 flags `l` as ambiguous variable name in generator expressions — use `seg` instead.
   - Frozen dataclasses (not Pydantic) are used for internal geometry models, consistent with existing service layer patterns (e.g., PipelineResult).
+---
+
+## 2026-02-07 - US-302
+- What was implemented: Scale detection — ScaleDetector class with text-based scale parsing (architectural fractions, whole-inch, metric), dimension string parsing helper, dimension-based scale inference from nearby lines, and text block extraction from PDF pages.
+- Files changed:
+  - `backend/cantena/geometry/scale.py` — ScaleDetector, ScaleResult, TextBlock, Confidence models, parse_dimension_string helper, regex patterns for architectural/metric/whole-inch scales and dimension strings
+  - `backend/tests/test_scale.py` — 24 tests: dimension parsing (feet-inches variants, decimal feet, unparseable), scale notation parsing (1/8"=1'-0" → 96, 1/4" → 48, 3/16" → 64, 1"=10'-0" → 120, 1:100, 1:50), messy text handling (extra spaces, no inch mark, embedded in title block), unparseable text returns None, dimension-based inference from nearby lines, text too far returns None, extract_text_blocks from real PDF
+- **Learnings for future iterations:**
+  - PyMuPDF `page.get_text("blocks")` returns tuples of `(x0, y0, x1, y1, text, block_no, block_type)` — block_type 0 = text
+  - Architectural scale regex needs to handle Unicode quote marks (U+201D, U+2033, U+2019, U+2032) in addition to ASCII quotes
+  - `_FRACTION_MAP` dict maps common architectural fractions to decimal inches — avoids eval/parsing fraction strings
+  - Dimension-based scale inference uses 50pt proximity threshold between text center and line midpoint
+  - `re.VERBOSE` flag allows readable multi-line regex patterns with inline comments
+  - `fullmatch` vs `finditer`: use fullmatch for dimension strings (exact match), finditer for scale notations (embedded in text)
+  - Deferred import of `PathType` inside `detect_from_dimensions` to avoid circular imports
 ---
 
