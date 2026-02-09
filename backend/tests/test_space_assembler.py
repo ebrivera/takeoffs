@@ -51,6 +51,7 @@ class _StubPageMeasurements:
     rooms: list[_StubDetectedRoom] | None = None
     llm_interpretation: _StubLlmInterpretation | None = None
     gross_area_sf: float | None = None
+    polygonize_success: bool = True
 
 
 @dataclass(frozen=True)

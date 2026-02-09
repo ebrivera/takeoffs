@@ -132,17 +132,63 @@ class SpaceProgram(BaseModel):
         total_area_sf: float,
         building_type: BuildingType,
     ) -> SpaceProgram:
-        """Build a SpaceProgram from LLM-interpreted room data."""
+        """Build a SpaceProgram from LLM-interpreted room data.
+
+        Tries to extract per-room area estimates from the LLM notes
+        (``estimated_area_sf: <number>``).  Falls back to equal
+        distribution if no estimates are found.
+        """
+        import re
+
         spaces: list[Space] = []
-        for llm_room in interp.rooms:
+        estimated_areas: dict[int, float] = {}
+
+        # First pass: extract any area estimates from notes
+        for i, llm_room in enumerate(interp.rooms):
+            match = re.search(
+                r"estimated_area_sf\s*:\s*([\d.]+)", llm_room.notes
+            )
+            if match:
+                estimated_areas[i] = float(match.group(1))
+
+        # Distribute area: use estimates when available, equal split otherwise
+        has_estimates = bool(estimated_areas)
+        estimated_total = sum(estimated_areas.values()) if has_estimates else 0.0
+
+        for i, llm_room in enumerate(interp.rooms):
             # Try to map LLM room_type_enum string to RoomType
             try:
                 room_type = RoomType(llm_room.room_type_enum.lower())
             except ValueError:
                 room_type = RoomType.OTHER
 
-            # Distribute area equally among LLM-identified rooms
-            area_sf = total_area_sf / len(interp.rooms) if interp.rooms else 0.0
+            if has_estimates and i in estimated_areas:
+                # Use the LLM's area estimate, scaled to match total
+                if estimated_total > 0:
+                    area_sf = (
+                        estimated_areas[i] / estimated_total * total_area_sf
+                    )
+                else:
+                    area_sf = estimated_areas[i]
+            elif has_estimates:
+                # This room has no estimate; give it a share of the remainder
+                remaining = total_area_sf - sum(
+                    estimated_areas[j] / estimated_total * total_area_sf
+                    for j in estimated_areas
+                ) if estimated_total > 0 else total_area_sf
+                unestimated_count = len(interp.rooms) - len(estimated_areas)
+                area_sf = (
+                    remaining / unestimated_count
+                    if unestimated_count > 0
+                    else 0.0
+                )
+            else:
+                # No estimates at all — equal split
+                area_sf = (
+                    total_area_sf / len(interp.rooms)
+                    if interp.rooms
+                    else 0.0
+                )
 
             spaces.append(Space(
                 room_type=room_type,

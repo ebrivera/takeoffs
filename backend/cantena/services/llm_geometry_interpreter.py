@@ -101,12 +101,27 @@ _SYSTEM_PROMPT = (
     "INDUSTRIAL, MIXED_USE, INSTITUTIONAL).\n"
     "2. Infer the structural system (e.g. wood frame, steel frame, "
     "concrete frame, masonry bearing).\n"
-    "3. Confirm or correct room labels and assign a room_type_enum "
-    "(e.g. LIVING, KITCHEN, BEDROOM, BATHROOM, UTILITY, CORRIDOR, "
-    "STORAGE, EXTERIOR, OTHER).\n"
-    "4. Note any special conditions visible in the text or drawing "
+    "3. Confirm or correct any detected room labels.\n"
+    "4. **CRITICALLY**: Identify ALL rooms visible in the text blocks "
+    "and/or drawing image, including rooms that the geometry engine "
+    "did NOT detect.  Look for room name labels in the text blocks "
+    "(e.g. LIVING ROOM, KITCHEN, DINING, BEDROOM, WC, UTILITY, "
+    "LAUNDRY, PORCH, CLOSET, etc.).  Each visible room should be "
+    "in the rooms array.  Use room_index starting from 0 for the "
+    "first detected room, then continue incrementing for additional "
+    "rooms you identify from the text.\n"
+    "5. For each room, estimate its approximate area in square feet "
+    "based on the dimension annotations visible in the text blocks "
+    "and the total building area.  Put area estimates in the notes "
+    "field as 'estimated_area_sf: <number>'.\n"
+    "6. Assign a room_type_enum to each room from: LIVING_ROOM, "
+    "KITCHEN, DINING, BEDROOM, BATHROOM, WC, UTILITY, LAUNDRY, "
+    "CLOSET, PORCH, CORRIDOR, HALLWAY, GARAGE, ENTRY, FOYER, "
+    "STORAGE, OFFICE, CONFERENCE, LOBBY, MECHANICAL_ROOM, "
+    "COMMON_AREA, OTHER.\n"
+    "7. Note any special conditions visible in the text or drawing "
     "(e.g. woodstove, chimney, hardwood floors, brick veneer).\n"
-    "5. Flag any measurement concerns (e.g. unusually large/small rooms, "
+    "8. Flag any measurement concerns (e.g. unusually large/small rooms, "
     "missing scale, inconsistent dimensions).\n\n"
     "Output ONLY a JSON object matching this schema exactly:\n\n"
     "```json\n"
@@ -118,9 +133,9 @@ _SYSTEM_PROMPT = (
     "    {\n"
     '      "room_index": <int>,\n'
     '      "confirmed_label": "<string>",\n'
-    '      "room_type_enum": "<LIVING|KITCHEN|BEDROOM|BATHROOM|'
-    'UTILITY|CORRIDOR|STORAGE|EXTERIOR|OTHER>",\n'
-    '      "notes": "<string>"\n'
+    '      "room_type_enum": "<see enum list above>",\n'
+    '      "notes": "<string, include estimated_area_sf: <number> '
+    'if area was estimated>"\n'
     "    }\n"
     "  ],\n"
     '  "special_conditions": ["<string>"],\n'
@@ -132,6 +147,8 @@ _SYSTEM_PROMPT = (
     "- Output ONLY the JSON block wrapped in ```json ... ``` fences.\n"
     "- Do not include reasoning text before or after the JSON.\n"
     "- Every field is required.\n"
+    "- Include ALL rooms you can identify, not just the ones passed "
+    "in the detected rooms list.\n"
 )
 
 

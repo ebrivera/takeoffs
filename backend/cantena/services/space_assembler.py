@@ -54,12 +54,21 @@ class SpaceAssembler:
         rooms = page_measurements.rooms
         llm_interp = page_measurements.llm_interpretation
 
+        # Geometry rooms are only trusted when polygonize actually
+        # produced real room polygons (polygonize_success=True).
+        # A single convex-hull fallback room (polygonize_success=False)
+        # should NOT be preferred over LLM-interpreted room breakdown.
+        has_real_geometry_rooms = bool(
+            rooms
+            and len(rooms) > 0
+            and page_measurements.polygonize_success
+        )
         has_geometry_rooms = bool(rooms and len(rooms) > 0)
         has_llm_rooms = bool(
             llm_interp is not None and len(llm_interp.rooms) > 0
         )
 
-        if has_geometry_rooms:
+        if has_real_geometry_rooms:
             assert rooms is not None  # for mypy
             program = SpaceProgram.from_detected_rooms(
                 rooms, building_model.building_type

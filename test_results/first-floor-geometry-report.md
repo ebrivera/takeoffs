@@ -1,6 +1,6 @@
 # Geometry Engine Accuracy Report: first-floor.pdf
 
-Generated: 2026-02-08 09:15 UTC
+Generated: 2026-02-09 16:14 UTC
 
 ## Drawing Info
 
@@ -17,7 +17,7 @@ Generated: 2026-02-08 09:15 UTC
 
 | Metric | Expected | Actual | Error |
 |--------|----------|--------|-------|
-| Gross area | 512 SF | 548.0 SF | +7.0% |
+| Gross area | 512 SF | 502.0 SF | -1.9% |
 | Perimeter | ~96 LF | 97.9 LF | +2.0% |
 | Wall count | - | 42 (23H, 19V) | - |
 | Total wall length | - | 227.5 LF | - |

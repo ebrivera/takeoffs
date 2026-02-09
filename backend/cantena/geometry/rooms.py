@@ -228,6 +228,9 @@ class RoomDetector:
     ) -> RoomAnalysis:
         """Detect enclosed room polygons from wall segments.
 
+        Tries center-line extraction first (handles parallel wall pairs
+        common in CAD exports), then raw segments, then convex hull.
+
         Parameters
         ----------
         segments:
@@ -244,9 +247,6 @@ class RoomDetector:
         ``RoomAnalysis`` with detected rooms, or a convex-hull fallback
         if ``polygonize`` fails.
         """
-        from shapely.geometry import LineString, MultiPoint, Polygon
-        from shapely.ops import polygonize, unary_union
-
         if not segments:
             return RoomAnalysis()
 
@@ -256,9 +256,89 @@ class RoomDetector:
         if not snapped:
             return RoomAnalysis()
 
-        # Step 2: Extend segments slightly and convert to LineStrings.
+        # Step 2: Try center-line approach (for parallel wall pairs).
+        result = self._try_centerline_polygonize(
+            snapped, scale_factor, page_area_pts
+        )
+        if result is not None:
+            return result
+
+        # Step 3: Try raw segments approach (original method).
+        result = self._try_raw_polygonize(
+            snapped, scale_factor, page_area_pts
+        )
+        if result is not None:
+            return result
+
+        # Step 4: Convex hull fallback.
+        return _convex_hull_fallback(snapped, scale_factor)
+
+    def _try_centerline_polygonize(
+        self,
+        segments: list[WallSegment],
+        scale_factor: float | None,
+        page_area_pts: float | None,
+    ) -> RoomAnalysis | None:
+        """Attempt room detection via center-line extraction.
+
+        Returns ``None`` if center-line extraction doesn't produce
+        useful rooms (caller should fall back to raw segments).
+        """
+        from cantena.geometry.centerline import (
+            close_gaps,
+            extend_to_intersections,
+            extract_centerlines,
+        )
+
+        cl_result = extract_centerlines(segments)
+
+        if len(cl_result.centerlines) < 4:
+            return None
+
+        # Close doorway gaps and extend to T-junctions.
+        closed = close_gaps(cl_result.centerlines)
+        extended = extend_to_intersections(closed)
+
+        # Include unpaired segments (might be single-line walls).
+        all_lines = extended + cl_result.unpaired
+
+        result = self._polygonize_segments(
+            all_lines, scale_factor, page_area_pts,
+        )
+
+        # Only accept if we got at least 2 rooms (otherwise not useful
+        # vs convex hull).
+        if result is not None and result.room_count >= 2:
+            return result
+        return None
+
+    def _try_raw_polygonize(
+        self,
+        segments: list[WallSegment],
+        scale_factor: float | None,
+        page_area_pts: float | None,
+    ) -> RoomAnalysis | None:
+        """Attempt room detection from raw wall segments (original method)."""
+        return self._polygonize_segments(
+            segments, scale_factor, page_area_pts,
+        )
+
+    def _polygonize_segments(
+        self,
+        segments: list[WallSegment],
+        scale_factor: float | None,
+        page_area_pts: float | None,
+    ) -> RoomAnalysis | None:
+        """Run polygonize on a set of segments and build RoomAnalysis.
+
+        Returns ``None`` if no rooms survive filtering.
+        """
+        from shapely.geometry import LineString, MultiPoint, Polygon
+        from shapely.ops import polygonize, unary_union
+
+        # Extend segments slightly and convert to LineStrings.
         lines: list[LineString] = []
-        for seg in snapped:
+        for seg in segments:
             ext_start, ext_end = _extend_segment(
                 seg.start, seg.end, _SEGMENT_EXTENSION_PTS
             )
@@ -268,11 +348,11 @@ class RoomDetector:
                 )
             )
 
-        # Step 3: Union all linework, then polygonize.
+        # Union all linework, then polygonize.
         merged = unary_union(lines)
         polygons: list[Polygon] = list(polygonize(merged))
 
-        # Step 4: Filter tiny and page-boundary polygons.
+        # Filter tiny and page-boundary polygons.
         filtered: list[Polygon] = []
         for poly in polygons:
             if poly.area < _MIN_ROOM_AREA_PTS:
@@ -284,9 +364,8 @@ class RoomDetector:
                 continue
             filtered.append(poly)
 
-        # Step 5: Fallback if nothing survived.
         if not filtered:
-            return _convex_hull_fallback(snapped, scale_factor)
+            return None
 
         # Build DetectedRoom objects.
         rooms: list[DetectedRoom] = []

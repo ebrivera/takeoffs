@@ -39,13 +39,22 @@ def create_pipeline() -> AnalysisPipeline:
     from cantena.geometry.extractor import VectorExtractor
     from cantena.geometry.measurement import MeasurementService
     from cantena.geometry.scale import ScaleDetector
+    from cantena.geometry.scale_verify import ScaleVerifier
     from cantena.geometry.walls import WallDetector
     from cantena.services.hybrid_analyzer import HybridAnalyzer
+    from cantena.services.llm_geometry_interpreter import (
+        LlmGeometryInterpreter,
+    )
+
+    llm_interpreter = LlmGeometryInterpreter(api_key=api_key)
+    scale_verifier = ScaleVerifier(api_key=api_key)
 
     measurement_service = MeasurementService(
         extractor=VectorExtractor(),
         scale_detector=ScaleDetector(),
         wall_detector=WallDetector(),
+        llm_interpreter=llm_interpreter,
+        scale_verifier=scale_verifier,
     )
     hybrid_analyzer = HybridAnalyzer(
         measurement_service=measurement_service,
