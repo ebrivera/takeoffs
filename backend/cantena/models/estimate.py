@@ -31,6 +31,12 @@ class CostRange(BaseModel):
             raise ValueError(msg)
         return self
 
+    def __format__(self, format_spec: str) -> str:
+        """Delegate formatting to the expected value."""
+        if format_spec:
+            return format(self.expected, format_spec)
+        return f"{self.low:,.0f} – {self.expected:,.0f} – {self.high:,.0f}"
+
 
 class DivisionCost(BaseModel):
     """Cost breakdown for a single CSI division."""
