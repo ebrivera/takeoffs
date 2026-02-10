@@ -23,8 +23,9 @@ class Orientation(StrEnum):
 
 
 # Minimum stroke width in PDF points to consider a line a wall.
-# 0.5mm ≈ 1.42 pts (72 pts/inch, 25.4 mm/inch).
-_MIN_WALL_WIDTH_PTS = 1.0
+# 0.25mm ≈ 0.72 pts. Captures partition stubs and door jambs (0.85pt)
+# while excluding cabinet/fixture outlines (0.51pt).
+_MIN_WALL_WIDTH_PTS = 0.72
 
 # Minimum segment length in PDF points.
 # 36 pts ≈ 0.5" on paper ≈ 2 ft at 1/4" scale.
@@ -137,7 +138,7 @@ class WallDetector:
         """Identify probable wall segments from vector paths.
 
         Heuristics:
-        - Lines with heavier stroke width (≥ 1.0 pts ≈ 0.5mm)
+        - Lines with stroke width ≥ 0.72 pts (≈ 0.25mm)
         - Minimum length (≥ 36 pts) to exclude annotation ticks
         - Strictly horizontal or vertical (± 2°)
         - Dark colour (black / dark gray)

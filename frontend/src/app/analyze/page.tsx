@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { analyzePlan, estimateFromModel, getSampleEstimate } from "@/lib/api";
 import type {
@@ -18,6 +18,7 @@ import {
   StructuralSystem,
   ExteriorWall,
 } from "@/lib/types";
+import DrawingViewer, { getDivisionColor } from "@/components/DrawingViewer";
 
 const US_STATES = [
   "AL","AK","AZ","AR","CA","CO","CT","DE","FL","GA",
@@ -30,13 +31,19 @@ const US_STATES = [
 
 const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50 MB
 
-type Stage = "Processing PDF" | "Analyzing drawing" | "Generating estimate";
-
-const STAGES: Stage[] = [
+const STAGES = [
   "Processing PDF",
-  "Analyzing drawing",
+  "Extracting geometry",
+  "Detecting scale",
+  "Measuring rooms",
+  "AI analysis",
   "Generating estimate",
-];
+] as const;
+
+type Stage = (typeof STAGES)[number];
+
+/** Delay in ms before advancing to each stage (index-aligned). */
+const STAGE_DELAYS = [0, 2000, 4000, 7000, 12000, 20000] as const;
 
 // Human-readable labels for enum values
 const BUILDING_TYPE_LABELS: Record<string, string> = {
@@ -143,11 +150,14 @@ export default function AnalyzePage() {
       setLoading(true);
       setError(null);
       setResult(null);
-      setStage("Processing PDF");
+      setStage(STAGES[0]);
 
-      // Simulate staged progress
-      const t1 = setTimeout(() => setStage("Analyzing drawing"), 3000);
-      const t2 = setTimeout(() => setStage("Generating estimate"), 12000);
+      // Simulate staged progress with granular timers
+      const timers: ReturnType<typeof setTimeout>[] = [];
+      for (let i = 1; i < STAGES.length; i++) {
+        const idx = i;
+        timers.push(setTimeout(() => setStage(STAGES[idx]), STAGE_DELAYS[idx]));
+      }
 
       try {
         const data = await analyzePlan(file, {
@@ -159,8 +169,7 @@ export default function AnalyzePage() {
       } catch (err) {
         setError(err instanceof Error ? err.message : "An error occurred.");
       } finally {
-        clearTimeout(t1);
-        clearTimeout(t2);
+        for (const t of timers) clearTimeout(t);
         setLoading(false);
       }
     },
@@ -209,7 +218,7 @@ export default function AnalyzePage() {
 
   return (
     <main className="min-h-screen bg-[var(--color-navy-950)] text-white">
-      <div className="mx-auto max-w-4xl px-6 py-16">
+      <div className={`mx-auto px-6 py-16 ${result?.geometry?.page_image_base64 ? "max-w-7xl" : "max-w-4xl"}`}>
         {/* Header */}
         <div className="mb-10">
           <Link
@@ -395,42 +404,38 @@ export default function AnalyzePage() {
         {loading && (
           <div className="mt-10 rounded-lg border border-[var(--color-navy-700)] bg-[var(--color-navy-900)] p-8">
             <div className="flex flex-col items-center gap-6">
-              {/* Spinner */}
-              <div className="h-8 w-8 animate-spin rounded-full border-2 border-[var(--color-navy-600)] border-t-[var(--color-blueprint-400)]" />
               <p className="text-sm font-medium text-white">{stage}...</p>
-              {/* Stage indicators */}
-              <div className="flex items-center gap-3">
+              {/* Granular step list */}
+              <div className="flex flex-col gap-2">
                 {STAGES.map((s, i) => {
                   const currentIdx = STAGES.indexOf(stage);
                   const done = i < currentIdx;
                   const active = i === currentIdx;
                   return (
-                    <div key={s} className="flex items-center gap-3">
-                      <div className="flex items-center gap-2">
-                        <div
-                          className={`h-2 w-2 rounded-full transition-colors ${
-                            done
-                              ? "bg-emerald-400"
-                              : active
-                                ? "bg-[var(--color-blueprint-400)]"
-                                : "bg-[var(--color-navy-600)]"
-                          }`}
-                        />
-                        <span
-                          className={`text-xs ${
-                            done
-                              ? "text-emerald-400"
-                              : active
-                                ? "text-white"
-                                : "text-[var(--color-navy-500)]"
-                          }`}
-                        >
-                          {s}
-                        </span>
-                      </div>
-                      {i < STAGES.length - 1 && (
-                        <div className="h-px w-6 bg-[var(--color-navy-700)]" />
+                    <div key={s} className="flex items-center gap-2.5">
+                      {/* Icon: checkmark, spinner, or dot */}
+                      {done ? (
+                        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className="shrink-0 text-emerald-400">
+                          <path d="M3 8.5l3 3 7-7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                      ) : active ? (
+                        <div className="h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-[var(--color-navy-600)] border-t-[var(--color-blueprint-400)]" />
+                      ) : (
+                        <div className="flex h-4 w-4 shrink-0 items-center justify-center">
+                          <div className="h-1.5 w-1.5 rounded-full bg-[var(--color-navy-600)]" />
+                        </div>
                       )}
+                      <span
+                        className={`text-xs ${
+                          done
+                            ? "text-emerald-400"
+                            : active
+                              ? "text-white font-medium"
+                              : "text-[var(--color-navy-500)]"
+                        }`}
+                      >
+                        {s}
+                      </span>
                     </div>
                   );
                 })}
@@ -500,14 +505,35 @@ function ResultsView({
   const [recalculating, setRecalculating] = useState(false);
   const [recalcError, setRecalcError] = useState<string | null>(null);
 
+  // Geometry highlight state
+  const [hoveredDivision, setHoveredDivision] = useState<string | null>(null);
+  const [selectedDivision, setSelectedDivision] = useState<string | null>(null);
+
   // Track if model has been edited
   const hasChanges = JSON.stringify(editedModel) !== JSON.stringify(result.building_model);
 
   const estimate = showingAdjusted && adjustedEstimate ? adjustedEstimate : originalEstimate;
+  const hasGeometry = !!result.geometry?.page_image_base64;
 
   // Space breakdown: prefer estimate-level, fall back to top-level analyze response
   const spaceBreakdown: SpaceCost[] | null =
     estimate.space_breakdown ?? result.space_breakdown ?? null;
+
+  // Build a map of division -> set of ref_types it uses
+  const divisionRefTypes = useMemo(() => {
+    const map = new Map<string, Set<string>>();
+    for (const div of estimate.breakdown) {
+      const refs = div.geometry_refs;
+      if (refs && refs.length > 0) {
+        const types = new Set<string>();
+        for (const ref of refs) {
+          types.add(ref.ref_type);
+        }
+        map.set(div.csi_division, types);
+      }
+    }
+    return map;
+  }, [estimate.breakdown]);
 
   const handleRecalculate = useCallback(async () => {
     setRecalculating(true);
@@ -523,160 +549,263 @@ function ResultsView({
     }
   }, [editedModel]);
 
-  return (
-    <section className="mt-12 space-y-6">
-      {/* Header card */}
-      <div className="rounded-lg border border-[var(--color-navy-700)] bg-[var(--color-navy-900)] p-6">
-        <div className="mb-4 flex items-start justify-between">
-          <div>
-            <h2 className="text-xl font-bold">{estimate.project_name}</h2>
-            <p className="mt-1 text-sm text-[var(--color-navy-400)]">
-              {estimate.building_summary.building_type} &middot;{" "}
-              {estimate.building_summary.gross_sf.toLocaleString()} SF &middot;{" "}
-              {estimate.building_summary.stories} stories &middot;{" "}
-              {estimate.building_summary.structural_system} &middot;{" "}
-              {estimate.building_summary.location}
-            </p>
-          </div>
-          {/* Toggle between AI and adjusted */}
-          {adjustedEstimate && (
-            <div className="flex gap-1 rounded-md border border-[var(--color-navy-700)] bg-[var(--color-navy-800)] p-0.5">
-              <button
-                type="button"
-                onClick={() => setShowingAdjusted(false)}
-                className={`rounded px-3 py-1 text-xs font-medium transition-colors ${
-                  !showingAdjusted
-                    ? "bg-[var(--color-navy-600)] text-white"
-                    : "text-[var(--color-navy-400)] hover:text-white"
-                }`}
-              >
-                AI Estimate
-              </button>
-              <button
-                type="button"
-                onClick={() => setShowingAdjusted(true)}
-                className={`rounded px-3 py-1 text-xs font-medium transition-colors ${
-                  showingAdjusted
-                    ? "bg-[var(--color-blueprint-500)] text-white"
-                    : "text-[var(--color-navy-400)] hover:text-white"
-                }`}
-              >
-                Adjusted
-              </button>
-            </div>
-          )}
+  const handleDivisionClick = useCallback((csiDivision: string) => {
+    setSelectedDivision((prev) => (prev === csiDivision ? null : csiDivision));
+  }, []);
+
+  // Sorted breakdown for the table
+  const sortedBreakdown = useMemo(
+    () => [...estimate.breakdown].sort((a, b) => b.cost.expected - a.cost.expected),
+    [estimate.breakdown],
+  );
+
+  const fmtQty = (n: number) =>
+    new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(n);
+
+  const fmtUnit = (n: number) =>
+    new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: "USD",
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(n);
+
+  // Shared content sections (used in both layouts)
+  const headerCard = (
+    <div className="rounded-lg border border-[var(--color-navy-700)] bg-[var(--color-navy-900)] p-6">
+      <div className="mb-4 flex items-start justify-between">
+        <div>
+          <h2 className="text-xl font-bold">{estimate.project_name}</h2>
+          <p className="mt-1 text-sm text-[var(--color-navy-400)]">
+            {estimate.building_summary.building_type} &middot;{" "}
+            {estimate.building_summary.gross_sf.toLocaleString()} SF &middot;{" "}
+            {estimate.building_summary.stories} stories &middot;{" "}
+            {estimate.building_summary.structural_system} &middot;{" "}
+            {estimate.building_summary.location}
+          </p>
         </div>
-        {/* Total cost */}
-        <div className="flex flex-wrap items-end gap-8">
-          <div>
-            <p className="text-xs font-medium uppercase tracking-wider text-[var(--color-navy-400)]">
-              Total Estimated Cost
-            </p>
-            <p className="font-mono text-3xl font-bold text-white">
-              {fmt(estimate.total_cost.expected)}
-            </p>
-            <p className="mt-1 text-xs text-[var(--color-navy-500)]">
-              Range: {fmt(estimate.total_cost.low)} &ndash;{" "}
-              {fmt(estimate.total_cost.high)}
-            </p>
+        {adjustedEstimate && (
+          <div className="flex gap-1 rounded-md border border-[var(--color-navy-700)] bg-[var(--color-navy-800)] p-0.5">
+            <button
+              type="button"
+              onClick={() => setShowingAdjusted(false)}
+              className={`rounded px-3 py-1 text-xs font-medium transition-colors ${
+                !showingAdjusted
+                  ? "bg-[var(--color-navy-600)] text-white"
+                  : "text-[var(--color-navy-400)] hover:text-white"
+              }`}
+            >
+              AI Estimate
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowingAdjusted(true)}
+              className={`rounded px-3 py-1 text-xs font-medium transition-colors ${
+                showingAdjusted
+                  ? "bg-[var(--color-blueprint-500)] text-white"
+                  : "text-[var(--color-navy-400)] hover:text-white"
+              }`}
+            >
+              Adjusted
+            </button>
           </div>
-          <div>
-            <p className="text-xs font-medium uppercase tracking-wider text-[var(--color-navy-400)]">
-              Cost per SF
-            </p>
-            <p className="font-mono text-xl font-bold text-[var(--color-blueprint-300)]">
-              {fmtSf(estimate.cost_per_sf.expected)}
-            </p>
-            <p className="mt-1 text-xs text-[var(--color-navy-500)]">
-              Range: {fmtSf(estimate.cost_per_sf.low)} &ndash;{" "}
-              {fmtSf(estimate.cost_per_sf.high)}
-            </p>
-          </div>
+        )}
+      </div>
+      <div className="flex flex-wrap items-end gap-8">
+        <div>
+          <p className="text-xs font-medium uppercase tracking-wider text-[var(--color-navy-400)]">
+            Total Estimated Cost
+          </p>
+          <p className="font-mono text-3xl font-bold text-white">
+            {fmt(estimate.total_cost.expected)}
+          </p>
+          <p className="mt-1 text-xs text-[var(--color-navy-500)]">
+            Range: {fmt(estimate.total_cost.low)} &ndash;{" "}
+            {fmt(estimate.total_cost.high)}
+          </p>
+        </div>
+        <div>
+          <p className="text-xs font-medium uppercase tracking-wider text-[var(--color-navy-400)]">
+            Cost per SF
+          </p>
+          <p className="font-mono text-xl font-bold text-[var(--color-blueprint-300)]">
+            {fmtSf(estimate.cost_per_sf.expected)}
+          </p>
+          <p className="mt-1 text-xs text-[var(--color-navy-500)]">
+            Range: {fmtSf(estimate.cost_per_sf.low)} &ndash;{" "}
+            {fmtSf(estimate.cost_per_sf.high)}
+          </p>
         </div>
       </div>
+    </div>
+  );
 
-      {/* Building Parameters (editable) */}
-      <BuildingParametersEditor
-        model={editedModel}
-        confidence={result.building_model.confidence}
-        onChange={setEditedModel}
-        hasChanges={hasChanges}
-        recalculating={recalculating}
-        recalcError={recalcError}
-        onRecalculate={handleRecalculate}
-      />
+  const handleExportCsv = useCallback(() => {
+    const rows: string[] = [];
+    const headers = hasGeometry
+      ? ["Division", "Name", "Qty", "Unit", "$/Unit", "Expected", "%", "Low", "High"]
+      : ["Division", "Name", "Expected", "%", "Low", "High"];
+    rows.push(headers.join(","));
+    for (const div of sortedBreakdown) {
+      const cols = hasGeometry
+        ? [
+            div.csi_division,
+            `"${div.division_name}"`,
+            div.quantity != null ? div.quantity.toFixed(0) : "",
+            div.unit ?? "",
+            div.unit_cost != null ? div.unit_cost.toFixed(2) : "",
+            div.cost.expected.toFixed(0),
+            div.percent_of_total.toFixed(1),
+            div.cost.low.toFixed(0),
+            div.cost.high.toFixed(0),
+          ]
+        : [
+            div.csi_division,
+            `"${div.division_name}"`,
+            div.cost.expected.toFixed(0),
+            div.percent_of_total.toFixed(1),
+            div.cost.low.toFixed(0),
+            div.cost.high.toFixed(0),
+          ];
+      rows.push(cols.join(","));
+    }
+    const blob = new Blob([rows.join("\n")], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${estimate.project_name.replace(/[^a-zA-Z0-9]/g, "_")}_divisions.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [sortedBreakdown, hasGeometry, estimate.project_name]);
 
-      {/* Space Program */}
-      <SpaceProgramSection
-        spaceBreakdown={spaceBreakdown}
-        roomDetectionMethod={result.room_detection_method}
-        buildingModel={editedModel}
-        onRecalculated={(newEstimate) => {
-          setAdjustedEstimate(newEstimate);
-          setShowingAdjusted(true);
-        }}
-        fmt={fmt}
-        fmtSf={fmtSf}
-      />
-
-      {/* Division breakdown */}
-      <div className="rounded-lg border border-[var(--color-navy-700)] bg-[var(--color-navy-900)] p-6">
-        <h3 className="mb-4 text-sm font-semibold uppercase tracking-wider text-[var(--color-navy-300)]">
+  const divisionTable = (
+    <div className="rounded-lg border border-[var(--color-navy-700)] bg-[var(--color-navy-900)] p-6">
+      <div className="mb-4 flex items-center justify-between">
+        <h3 className="text-sm font-semibold uppercase tracking-wider text-[var(--color-navy-300)]">
           Division Breakdown
         </h3>
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm">
-            <thead>
-              <tr className="border-b border-[var(--color-navy-700)]">
-                <th className="pb-2 pr-4 font-mono text-xs font-medium uppercase tracking-wider text-[var(--color-navy-500)]">
-                  Div
-                </th>
-                <th className="pb-2 pr-4 font-mono text-xs font-medium uppercase tracking-wider text-[var(--color-navy-500)]">
-                  Name
-                </th>
-                <th className="pb-2 pr-4 text-right font-mono text-xs font-medium uppercase tracking-wider text-[var(--color-navy-500)]">
-                  Expected
-                </th>
-                <th className="pb-2 pr-4 text-right font-mono text-xs font-medium uppercase tracking-wider text-[var(--color-navy-500)]">
-                  %
-                </th>
-                <th className="pb-2 text-right font-mono text-xs font-medium uppercase tracking-wider text-[var(--color-navy-500)]">
-                  Range
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {[...estimate.breakdown]
-                .sort((a, b) => b.cost.expected - a.cost.expected)
-                .map((div, i) => (
-                  <tr
-                    key={div.csi_division}
-                    className={`border-b border-[var(--color-navy-700)]/50 ${
-                      i < 3 ? "bg-[var(--color-blueprint-500)]/3" : ""
-                    }`}
-                  >
-                    <td className="py-2.5 pr-4 font-mono text-[var(--color-navy-400)]">
-                      {div.csi_division}
-                    </td>
-                    <td className="py-2.5 pr-4 text-[var(--color-navy-200)]">
-                      {div.division_name}
-                    </td>
-                    <td className="py-2.5 pr-4 text-right font-mono text-white">
-                      {fmt(div.cost.expected)}
-                    </td>
-                    <td className="py-2.5 pr-4 text-right font-mono text-[var(--color-navy-400)]">
-                      {div.percent_of_total.toFixed(1)}%
-                    </td>
-                    <td className="py-2.5 text-right font-mono text-xs text-[var(--color-navy-500)]">
-                      {fmt(div.cost.low)} &ndash; {fmt(div.cost.high)}
-                    </td>
-                  </tr>
-                ))}
-            </tbody>
-          </table>
+        <div className="flex items-center gap-3">
+          {selectedDivision && (
+            <button
+              type="button"
+              onClick={() => setSelectedDivision(null)}
+              className="text-xs text-[var(--color-navy-400)] transition-colors hover:text-white"
+            >
+              Clear selection
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={handleExportCsv}
+            className="inline-flex items-center gap-1.5 rounded-md border border-[var(--color-navy-700)] px-2.5 py-1.5 text-xs font-medium text-[var(--color-navy-400)] transition-colors hover:border-[var(--color-navy-500)] hover:text-white"
+          >
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+              <path d="M8 2v8m0 0l-3-3m3 3l3-3M3 12h10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            CSV
+          </button>
         </div>
       </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-left text-sm">
+          <thead>
+            <tr className="border-b border-[var(--color-navy-700)]">
+              <th className="pb-2 pr-4 font-mono text-xs font-medium uppercase tracking-wider text-[var(--color-navy-500)]">
+                Div
+              </th>
+              <th className="pb-2 pr-4 font-mono text-xs font-medium uppercase tracking-wider text-[var(--color-navy-500)]">
+                Name
+              </th>
+              {hasGeometry && (
+                <>
+                  <th className="pb-2 pr-4 text-right font-mono text-xs font-medium uppercase tracking-wider text-[var(--color-navy-500)]">
+                    Qty
+                  </th>
+                  <th className="pb-2 pr-4 text-right font-mono text-xs font-medium uppercase tracking-wider text-[var(--color-navy-500)]">
+                    Unit
+                  </th>
+                  <th className="pb-2 pr-4 text-right font-mono text-xs font-medium uppercase tracking-wider text-[var(--color-navy-500)]">
+                    $/Unit
+                  </th>
+                </>
+              )}
+              <th className="pb-2 pr-4 text-right font-mono text-xs font-medium uppercase tracking-wider text-[var(--color-navy-500)]">
+                Expected
+              </th>
+              <th className="pb-2 pr-4 text-right font-mono text-xs font-medium uppercase tracking-wider text-[var(--color-navy-500)]">
+                %
+              </th>
+              <th className="pb-2 text-right font-mono text-xs font-medium uppercase tracking-wider text-[var(--color-navy-500)]">
+                Range
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {sortedBreakdown.map((div, i) => {
+              const isSelected = selectedDivision === div.csi_division;
+              const isHovered = hoveredDivision === div.csi_division;
+              const isActive = isSelected || isHovered;
+              return (
+                <tr
+                  key={div.csi_division}
+                  className={`cursor-pointer border-b border-[var(--color-navy-700)]/50 transition-colors ${
+                    isActive
+                      ? "bg-[var(--color-blueprint-500)]/10"
+                      : i < 3
+                        ? "bg-[var(--color-blueprint-500)]/3"
+                        : "hover:bg-[var(--color-navy-800)]"
+                  }`}
+                  onMouseEnter={() => setHoveredDivision(div.csi_division)}
+                  onMouseLeave={() => setHoveredDivision(null)}
+                  onClick={() => handleDivisionClick(div.csi_division)}
+                >
+                  <td className="py-2.5 pr-4 font-mono text-[var(--color-navy-400)]">
+                    <span className="inline-flex items-center gap-2">
+                      {hasGeometry && (
+                        <span
+                          className="inline-block h-2.5 w-2.5 rounded-full"
+                          style={{ backgroundColor: getDivisionColor(div.csi_division) }}
+                        />
+                      )}
+                      {div.csi_division}
+                    </span>
+                  </td>
+                  <td className="py-2.5 pr-4 text-[var(--color-navy-200)]">
+                    {div.division_name}
+                  </td>
+                  {hasGeometry && (
+                    <>
+                      <td className="py-2.5 pr-4 text-right font-mono text-[var(--color-navy-400)]">
+                        {div.quantity != null ? fmtQty(div.quantity) : "—"}
+                      </td>
+                      <td className="py-2.5 pr-4 text-right font-mono text-xs text-[var(--color-navy-500)]">
+                        {div.unit ?? "—"}
+                      </td>
+                      <td className="py-2.5 pr-4 text-right font-mono text-[var(--color-navy-400)]">
+                        {div.unit_cost != null ? fmtUnit(div.unit_cost) : "—"}
+                      </td>
+                    </>
+                  )}
+                  <td className="py-2.5 pr-4 text-right font-mono text-white">
+                    {fmt(div.cost.expected)}
+                  </td>
+                  <td className="py-2.5 pr-4 text-right font-mono text-[var(--color-navy-400)]">
+                    {div.percent_of_total.toFixed(1)}%
+                  </td>
+                  <td className="py-2.5 text-right font-mono text-xs text-[var(--color-navy-500)]">
+                    {fmt(div.cost.low)} &ndash; {fmt(div.cost.high)}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
 
+  const bottomSections = (
+    <>
       {/* Assumptions */}
       <DisclosurePanel title="Assumptions">
         <div className="space-y-3">
@@ -730,6 +859,91 @@ function ResultsView({
         <span>Method: {estimate.metadata.estimation_method}</span>
         <span>Location Factor: {estimate.location_factor.toFixed(2)}</span>
       </div>
+    </>
+  );
+
+  // ── Split-panel layout when geometry is available ──
+  if (hasGeometry && result.geometry) {
+    return (
+      <section className="mt-12 space-y-6">
+        {headerCard}
+
+        {/* Split panel: drawing + breakdown */}
+        <div className="flex flex-col gap-6 lg:flex-row">
+          {/* Left: Drawing viewer (sticky) */}
+          <div className="w-full lg:w-[55%]">
+            <div className="lg:sticky lg:top-6">
+              <DrawingViewer
+                geometry={result.geometry}
+                hoveredDivision={hoveredDivision}
+                selectedDivision={selectedDivision}
+                divisionRefTypes={divisionRefTypes}
+              />
+            </div>
+          </div>
+
+          {/* Right: Breakdown + details */}
+          <div className="w-full space-y-6 lg:w-[45%]">
+            {divisionTable}
+
+            <BuildingParametersEditor
+              model={editedModel}
+              confidence={result.building_model.confidence}
+              onChange={setEditedModel}
+              hasChanges={hasChanges}
+              recalculating={recalculating}
+              recalcError={recalcError}
+              onRecalculate={handleRecalculate}
+            />
+
+            <SpaceProgramSection
+              spaceBreakdown={spaceBreakdown}
+              roomDetectionMethod={result.room_detection_method}
+              buildingModel={editedModel}
+              onRecalculated={(newEstimate) => {
+                setAdjustedEstimate(newEstimate);
+                setShowingAdjusted(true);
+              }}
+              fmt={fmt}
+              fmtSf={fmtSf}
+            />
+
+            {bottomSections}
+          </div>
+        </div>
+      </section>
+    );
+  }
+
+  // ── Single-column layout (no geometry) ──
+  return (
+    <section className="mt-12 space-y-6">
+      {headerCard}
+
+      <BuildingParametersEditor
+        model={editedModel}
+        confidence={result.building_model.confidence}
+        onChange={setEditedModel}
+        hasChanges={hasChanges}
+        recalculating={recalculating}
+        recalcError={recalcError}
+        onRecalculate={handleRecalculate}
+      />
+
+      <SpaceProgramSection
+        spaceBreakdown={spaceBreakdown}
+        roomDetectionMethod={result.room_detection_method}
+        buildingModel={editedModel}
+        onRecalculated={(newEstimate) => {
+          setAdjustedEstimate(newEstimate);
+          setShowingAdjusted(true);
+        }}
+        fmt={fmt}
+        fmtSf={fmtSf}
+      />
+
+      {divisionTable}
+      {bottomSections}
     </section>
   );
 }

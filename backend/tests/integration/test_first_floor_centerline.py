@@ -86,7 +86,12 @@ class TestCenterlineExtraction:
     def test_few_unpaired_segments(
         self, first_floor_page: fitz.Page
     ) -> None:
-        """Most segments should be paired; unpaired should be minority."""
+        """Most segments should be paired; unpaired should be minority.
+
+        Note: the 0.72pt wall threshold captures thin partition stubs
+        (0.85pt) that are single lines without parallel pairs, so the
+        unpaired percentage is higher than with a 1.0pt threshold.
+        """
         data = _extractor.extract(first_floor_page)
         analysis = _wall_detector.detect(data)
         snapped = snap_endpoints(analysis.segments)
@@ -95,7 +100,7 @@ class TestCenterlineExtraction:
         total = len(result.centerlines) + len(result.unpaired)
         unpaired_pct = len(result.unpaired) / max(total, 1) * 100
         print(f"\n--- Unpaired: {len(result.unpaired)}/{total} ({unpaired_pct:.0f}%) ---")
-        assert unpaired_pct < 30, (
+        assert unpaired_pct < 50, (
             f"Too many unpaired segments: {unpaired_pct:.0f}%"
         )
 

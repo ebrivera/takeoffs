@@ -91,7 +91,11 @@ class TestMeasurementPipeline:
     def test_total_wall_length_in_range(
         self, first_floor_page: fitz.Page
     ) -> None:
-        """total_wall_length_lf should be between 80 and 300 LF."""
+        """total_wall_length_lf should be between 80 and 350 LF.
+
+        The 0.72pt threshold captures partition stubs (0.85pt) which
+        adds ~10-15% more wall length than the old 1.0pt threshold.
+        """
         result = _service.measure(first_floor_page)
         assert result.total_wall_length_lf is not None, (
             "total_wall_length_lf is None"
@@ -100,9 +104,9 @@ class TestMeasurementPipeline:
             f"\n--- Total wall length: "
             f"{result.total_wall_length_lf:.1f} LF ---"
         )
-        assert 80 <= result.total_wall_length_lf <= 300, (
+        assert 80 <= result.total_wall_length_lf <= 350, (
             f"total_wall_length_lf {result.total_wall_length_lf:.1f} "
-            f"outside expected range 80-300 LF"
+            f"outside expected range 80-350 LF"
         )
 
     def test_confidence_at_least_medium(

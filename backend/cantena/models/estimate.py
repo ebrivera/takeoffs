@@ -38,6 +38,16 @@ class CostRange(BaseModel):
         return f"{self.low:,.0f} – {self.expected:,.0f} – {self.high:,.0f}"
 
 
+class GeometryRef(BaseModel):
+    """Reference to a piece of source geometry backing a cost line item."""
+
+    ref_id: str
+    ref_type: str
+    coordinates: list[list[float]]
+    page: int = 1
+    label: str | None = None
+
+
 class DivisionCost(BaseModel):
     """Cost breakdown for a single CSI division."""
 
@@ -46,6 +56,11 @@ class DivisionCost(BaseModel):
     cost: CostRange
     percent_of_total: float
     source: str
+    quantity: float | None = None
+    unit: str | None = None
+    unit_cost: float | None = None
+    total_cost: float | None = None
+    geometry_refs: list[GeometryRef] = Field(default_factory=list)
 
 
 class Assumption(BaseModel):
@@ -172,3 +187,35 @@ class CostEstimate(BaseModel):
             "location_factor": self.location_factor,
             "metadata": self.metadata.model_dump(),
         }
+
+
+class SerializedRoom(BaseModel):
+    """Room polygon serialized for API responses."""
+
+    room_index: int
+    polygon_pts: list[list[float]]
+    area_sf: float | None = None
+    perimeter_lf: float | None = None
+    label: str | None = None
+    centroid: list[float] | None = None
+
+
+class SerializedWallSegment(BaseModel):
+    """Wall segment serialized for API responses."""
+
+    start: list[float]
+    end: list[float]
+    thickness_pts: float | None = None
+    length_lf: float | None = None
+
+
+class GeometryPayload(BaseModel):
+    """Top-level geometry data for API responses."""
+
+    page_width_pts: float
+    page_height_pts: float
+    rooms: list[SerializedRoom] = Field(default_factory=list)
+    wall_segments: list[SerializedWallSegment] = Field(default_factory=list)
+    outer_boundary: list[list[float]] | None = None
+    scale_factor: float | None = None
+    page_image_base64: str | None = None

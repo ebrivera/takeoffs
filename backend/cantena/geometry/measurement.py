@@ -20,7 +20,7 @@ if TYPE_CHECKING:
         ScaleVerificationResult,
         ScaleVerifier,
     )
-    from cantena.geometry.walls import WallDetector
+    from cantena.geometry.walls import WallDetector, WallSegment
     from cantena.services.llm_geometry_interpreter import (
         LlmGeometryInterpreter,
         LlmInterpretation,
@@ -80,6 +80,8 @@ class PageMeasurements:
     polygonize_success: bool = False
     llm_interpretation: LlmInterpretation | None = None
     scale_verification: ScaleVerificationResult | None = None
+    wall_segments: list[WallSegment] | None = None
+    outer_boundary_polygon: list[tuple[float, float]] | None = None
 
 
 class MeasurementService:
@@ -236,6 +238,11 @@ class MeasurementService:
             polygonize_success=polygonize_success,
             llm_interpretation=llm_interpretation,
             scale_verification=scale_verification,
+            wall_segments=wall_analysis.segments or None,
+            outer_boundary_polygon=(
+                room_analysis.outer_boundary_polygon
+                if room_analysis else None
+            ),
         )
 
     def _run_llm_enrichment(

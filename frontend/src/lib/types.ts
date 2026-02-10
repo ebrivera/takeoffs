@@ -141,12 +141,25 @@ export interface CostRange {
   high: number;
 }
 
+export interface GeometryRef {
+  ref_id: string;
+  ref_type: string;
+  coordinates: number[][];
+  page: number;
+  label?: string | null;
+}
+
 export interface DivisionCost {
   csi_division: string;
   division_name: string;
   cost: CostRange;
   percent_of_total: number;
   source: string;
+  quantity?: number | null;
+  unit?: string | null;
+  unit_cost?: number | null;
+  total_cost?: number | null;
+  geometry_refs?: GeometryRef[];
 }
 
 export interface Assumption {
@@ -208,6 +221,34 @@ export interface CostEstimate {
   space_breakdown?: SpaceCost[] | null;
 }
 
+// ── Geometry payload (matching cantena.models.estimate geometry models) ─────
+
+export interface SerializedRoom {
+  room_index: number;
+  polygon_pts: number[][];
+  area_sf?: number | null;
+  perimeter_lf?: number | null;
+  label?: string | null;
+  centroid?: number[] | null;
+}
+
+export interface SerializedWallSegment {
+  start: number[];
+  end: number[];
+  thickness_pts?: number | null;
+  length_lf?: number | null;
+}
+
+export interface GeometryPayload {
+  page_width_pts: number;
+  page_height_pts: number;
+  rooms: SerializedRoom[];
+  wall_segments: SerializedWallSegment[];
+  outer_boundary?: number[][] | null;
+  scale_factor?: number | null;
+  page_image_base64?: string | null;
+}
+
 // ── API response (matching FastAPI /api/analyze response) ──────────────────
 
 export interface AnalysisInfo {
@@ -227,4 +268,5 @@ export interface AnalyzeResponse {
   geometry_available?: boolean;
   measurement_confidence?: string;
   room_detection_method?: string;
+  geometry?: GeometryPayload;
 }

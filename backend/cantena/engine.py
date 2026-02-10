@@ -28,11 +28,14 @@ from cantena.models.estimate import (
     CostRange,
     DivisionCost,
     EstimateMetadata,
+    GeometryRef,
     SpaceCost,
 )
 
 if TYPE_CHECKING:
     from cantena.data.repository import CostDataRepository
+    from cantena.geometry.rooms import DetectedRoom
+    from cantena.geometry.walls import WallSegment
     from cantena.models.building import BuildingModel
     from cantena.models.space_program import SpaceProgram
 
@@ -82,6 +85,11 @@ class CostEngine:
         building: BuildingModel,
         project_name: str,
         space_program: SpaceProgram | None = None,
+        rooms: list[DetectedRoom] | None = None,
+        wall_segments: list[WallSegment] | None = None,
+        outer_boundary: list[tuple[float, float]] | None = None,
+        gross_sf_override: float | None = None,
+        perimeter_lf: float | None = None,
     ) -> CostEstimate:
         """Produce a conceptual cost estimate for a building.
 
@@ -162,6 +170,11 @@ class CostEngine:
         breakdown = self._generate_division_breakdown(
             building=building,
             total_cost=total_cost,
+            rooms=rooms,
+            wall_segments=wall_segments,
+            outer_boundary=outer_boundary,
+            gross_sf=gross_sf_override or building.gross_sf,
+            perimeter_lf=perimeter_lf,
         )
 
         # 6. Document low-confidence field assumptions
@@ -295,6 +308,11 @@ class CostEngine:
         self,
         building: BuildingModel,
         total_cost: CostRange,
+        rooms: list[DetectedRoom] | None = None,
+        wall_segments: list[WallSegment] | None = None,
+        outer_boundary: list[tuple[float, float]] | None = None,
+        gross_sf: float | None = None,
+        perimeter_lf: float | None = None,
     ) -> list[DivisionCost]:
         """Break down total cost into CSI division costs."""
         percentages = self._repository.get_division_breakdown(building.building_type)
@@ -323,7 +341,126 @@ class CostEngine:
                 )
             )
 
+        # Attach geometry references if geometry is available
+        if rooms or wall_segments or outer_boundary:
+            breakdown = self._attach_geometry_refs(
+                breakdown,
+                rooms=rooms,
+                wall_segments=wall_segments,
+                outer_boundary=outer_boundary,
+                gross_sf=gross_sf or building.gross_sf,
+                perimeter_lf=perimeter_lf,
+            )
+
         return breakdown
+
+    @staticmethod
+    def _attach_geometry_refs(
+        breakdown: list[DivisionCost],
+        rooms: list[DetectedRoom] | None = None,
+        wall_segments: list[WallSegment] | None = None,
+        outer_boundary: list[tuple[float, float]] | None = None,
+        gross_sf: float = 0.0,
+        perimeter_lf: float | None = None,
+    ) -> list[DivisionCost]:
+        """Attach geometry references and quantity metadata to divisions.
+
+        This maps CSI divisions to their source geometry (rooms, walls,
+        or footprint) and computes unit costs. It does NOT change the
+        cost calculations — only adds traceability metadata.
+        """
+        wall_divisions = {"04", "07"}
+        room_divisions = {"06", "09", "23"}
+        wet_room_labels = {
+            "kitchen", "wc", "bathroom", "restroom",
+            "laundry", "utility", "mechanical",
+        }
+
+        # Build geometry refs for each type
+        room_refs: list[GeometryRef] = []
+        room_area_sf = 0.0
+        wet_room_refs: list[GeometryRef] = []
+        wet_room_area_sf = 0.0
+        if rooms:
+            for r in rooms:
+                ref = GeometryRef(
+                    ref_id=f"room-{r.room_index}",
+                    ref_type="room_polygon",
+                    coordinates=[list(pt) for pt in r.polygon_pts],
+                    label=r.label,
+                )
+                room_refs.append(ref)
+                if r.area_sf is not None:
+                    room_area_sf += r.area_sf
+                # Classify wet rooms by label
+                if r.label and r.label.lower() in wet_room_labels:
+                    wet_room_refs.append(ref)
+                    if r.area_sf is not None:
+                        wet_room_area_sf += r.area_sf
+
+        wall_refs: list[GeometryRef] = []
+        if wall_segments:
+            for i, seg in enumerate(wall_segments):
+                wall_refs.append(GeometryRef(
+                    ref_id=f"wall-{i}",
+                    ref_type="wall_segment",
+                    coordinates=[
+                        [seg.start.x, seg.start.y],
+                        [seg.end.x, seg.end.y],
+                    ],
+                ))
+
+        footprint_refs: list[GeometryRef] = []
+        if outer_boundary:
+            footprint_refs.append(GeometryRef(
+                ref_id="footprint",
+                ref_type="building_footprint",
+                coordinates=[list(pt) for pt in outer_boundary],
+            ))
+
+        updated: list[DivisionCost] = []
+        for div in breakdown:
+            div_num = div.csi_division
+            refs: list[GeometryRef] = []
+            quantity: float | None = None
+            unit: str | None = None
+
+            if div_num in wall_divisions and wall_refs:
+                refs = wall_refs
+                quantity = perimeter_lf if perimeter_lf and perimeter_lf > 0 else None
+                unit = "LF"
+            elif div_num == "22" and wet_room_refs:
+                refs = wet_room_refs
+                quantity = wet_room_area_sf if wet_room_area_sf > 0 else None
+                unit = "SF"
+            elif div_num in room_divisions and room_refs:
+                refs = room_refs
+                quantity = room_area_sf if room_area_sf > 0 else None
+                unit = "SF"
+            elif footprint_refs:
+                refs = footprint_refs
+                quantity = gross_sf if gross_sf > 0 else None
+                unit = "SF"
+
+            unit_cost: float | None = None
+            total_cost: float | None = div.cost.expected if refs else None
+            if quantity and quantity > 0 and total_cost:
+                unit_cost = total_cost / quantity
+
+            updated.append(DivisionCost(
+                csi_division=div.csi_division,
+                division_name=div.division_name,
+                cost=div.cost,
+                percent_of_total=div.percent_of_total,
+                source=div.source,
+                quantity=quantity,
+                unit=unit,
+                unit_cost=unit_cost,
+                total_cost=total_cost,
+                geometry_refs=refs,
+            ))
+
+        return updated
 
     def _collect_confidence_assumptions(
         self,

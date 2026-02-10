@@ -36,6 +36,15 @@ class EstimateRequest(BaseModel):
 
 logger = logging.getLogger(__name__)
 
+_DEFAULT_CORS_ORIGINS = ["http://localhost:3000", "http://127.0.0.1:3000"]
+
+
+def _cors_origins() -> list[str]:
+    """Read allowed CORS origins from env, falling back to localhost."""
+    raw = os.getenv("CORS_ALLOW_ORIGINS", "")
+    origins = [o.strip() for o in raw.split(",") if o.strip()]
+    return origins if origins else _DEFAULT_CORS_ORIGINS
+
 
 def create_app(
     *,
@@ -58,7 +67,7 @@ def create_app(
 
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+        allow_origins=_cors_origins(),
         allow_methods=["*"],
         allow_headers=["*"],
     )
@@ -170,6 +179,10 @@ def create_app(
                     sc.model_dump(mode="json")
                     for sc in result.space_breakdown
                 ]
+            if result.geometry_payload is not None:
+                response["geometry"] = (
+                    result.geometry_payload.model_dump(mode="json")
+                )
             return response
 
         except CantenaError as exc:

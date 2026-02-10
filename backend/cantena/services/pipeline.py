@@ -20,7 +20,11 @@ if TYPE_CHECKING:
 
     from cantena.engine import CostEngine
     from cantena.geometry.measurement import PageMeasurements
-    from cantena.models.estimate import CostEstimate, SpaceCost
+    from cantena.models.estimate import (
+        CostEstimate,
+        GeometryPayload,
+        SpaceCost,
+    )
     from cantena.models.space_program import SpaceProgram
     from cantena.services.hybrid_analyzer import (
         HybridAnalysisResult,
@@ -58,6 +62,7 @@ class PipelineResult:
     space_program: SpaceProgram | None = None
     space_breakdown: list[SpaceCost] | None = None
     room_detection_method: str | None = None
+    geometry_payload: GeometryPayload | None = None
 
 
 class AnalysisPipeline:
@@ -215,12 +220,41 @@ class AnalysisPipeline:
                     space_program = None
                     room_detection_method = None
 
-            # 5. Cost estimation
+            # 5. Build geometry payload + pass geometry to cost engine
+            geometry_payload: GeometryPayload | None = None
+            rooms_for_engine = None
+            walls_for_engine = None
+            outer_boundary_for_engine = None
+            perimeter_lf_for_engine = None
+
+            if (
+                geometry_available
+                and geometry_measurements is not None
+            ):
+                geometry_payload = self._build_geometry_payload(
+                    geometry_measurements, best_page,
+                )
+                rooms_for_engine = geometry_measurements.rooms
+                walls_for_engine = (
+                    geometry_measurements.wall_segments
+                )
+                outer_boundary_for_engine = (
+                    geometry_measurements.outer_boundary_polygon
+                )
+                perimeter_lf_for_engine = (
+                    geometry_measurements.building_perimeter_lf
+                )
+
+            # 6. Cost estimation
             try:
                 estimate = self._cost_engine.estimate(
                     building=building_model,
                     project_name=project_name,
                     space_program=space_program,
+                    rooms=rooms_for_engine,
+                    wall_segments=walls_for_engine,
+                    outer_boundary=outer_boundary_for_engine,
+                    perimeter_lf=perimeter_lf_for_engine,
                 )
             except Exception as exc:
                 if isinstance(exc, CostEstimationError):
@@ -249,6 +283,7 @@ class AnalysisPipeline:
                 space_program=space_program,
                 space_breakdown=estimate.space_breakdown,
                 room_detection_method=room_detection_method,
+                geometry_payload=geometry_payload,
             )
 
         finally:
@@ -279,6 +314,119 @@ class AnalysisPipeline:
         finally:
             doc.close()
         return result
+
+    @staticmethod
+    def _build_geometry_payload(
+        measurements: PageMeasurements,
+        best_page: PageResult,
+    ) -> GeometryPayload | None:
+        """Build a GeometryPayload from measurements and page image."""
+        import base64
+
+        from cantena.models.estimate import (
+            GeometryPayload,
+            SerializedRoom,
+            SerializedWallSegment,
+        )
+
+        raw = measurements.raw_data
+
+        # Serialize rooms
+        serialized_rooms: list[SerializedRoom] = []
+        if measurements.rooms:
+            for r in measurements.rooms:
+                serialized_rooms.append(SerializedRoom(
+                    room_index=r.room_index,
+                    polygon_pts=[list(pt) for pt in r.polygon_pts],
+                    area_sf=r.area_sf,
+                    perimeter_lf=r.perimeter_lf,
+                    label=r.label,
+                    centroid=(
+                        [r.centroid.x, r.centroid.y]
+                        if r.centroid is not None else None
+                    ),
+                ))
+
+        # Compute room bounding box for wall filtering
+        room_bbox: tuple[float, float, float, float] | None = None
+        if serialized_rooms:
+            all_x: list[float] = []
+            all_y: list[float] = []
+            for sr in serialized_rooms:
+                for pt in sr.polygon_pts:
+                    all_x.append(pt[0])
+                    all_y.append(pt[1])
+            if all_x and all_y:
+                margin_x = (max(all_x) - min(all_x)) * 0.15
+                margin_y = (max(all_y) - min(all_y)) * 0.15
+                room_bbox = (
+                    min(all_x) - margin_x,
+                    min(all_y) - margin_y,
+                    max(all_x) + margin_x,
+                    max(all_y) + margin_y,
+                )
+
+        # Serialize wall segments (filter to building area)
+        serialized_walls: list[SerializedWallSegment] = []
+        if measurements.wall_segments:
+            for seg in measurements.wall_segments:
+                # Filter: skip walls outside room bounding box
+                if room_bbox is not None:
+                    mid_x = (seg.start.x + seg.end.x) / 2
+                    mid_y = (seg.start.y + seg.end.y) / 2
+                    if (
+                        mid_x < room_bbox[0]
+                        or mid_x > room_bbox[2]
+                        or mid_y < room_bbox[1]
+                        or mid_y > room_bbox[3]
+                    ):
+                        continue
+                serialized_walls.append(SerializedWallSegment(
+                    start=[seg.start.x, seg.start.y],
+                    end=[seg.end.x, seg.end.y],
+                    thickness_pts=seg.thickness_pts,
+                    length_lf=(
+                        seg.length_pts / 72.0 * (
+                            measurements.scale.scale_factor
+                            if measurements.scale else 1.0
+                        ) / 12.0
+                    ),
+                ))
+
+        # Outer boundary
+        outer_boundary: list[list[float]] | None = None
+        if measurements.outer_boundary_polygon:
+            outer_boundary = [
+                list(pt) for pt in measurements.outer_boundary_polygon
+            ]
+
+        # Read page image as base64
+        page_image_base64: str | None = None
+        try:
+            image_path = best_page.image_path
+            if image_path.exists():
+                image_bytes = image_path.read_bytes()
+                page_image_base64 = base64.b64encode(
+                    image_bytes
+                ).decode("ascii")
+        except Exception:
+            logger.warning(
+                "Failed to read page image for geometry payload",
+                exc_info=True,
+            )
+
+        return GeometryPayload(
+            page_width_pts=raw.page_width_pts,
+            page_height_pts=raw.page_height_pts,
+            rooms=serialized_rooms,
+            wall_segments=serialized_walls,
+            outer_boundary=outer_boundary,
+            scale_factor=(
+                measurements.scale.scale_factor
+                if measurements.scale else None
+            ),
+            page_image_base64=page_image_base64,
+        )
 
     @staticmethod
     def _count_vector_paths(
