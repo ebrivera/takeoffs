@@ -220,6 +220,35 @@ _HOTEL_BREAKDOWN: dict[str, float] = {
 }
 
 
+# Plain-English scope descriptions for each CSI division.
+# Written for a PM, not an estimator — avoids jargon where possible.
+DIVISION_DESCRIPTIONS: dict[str, str] = {
+    "01": "Project management, temporary facilities, permits, insurance",
+    "02": "Demolition, site remediation, hazardous material removal",
+    "03": "Foundations, slabs, footings, structural concrete",
+    "04": "Brick, block, stone veneer, mortar, chimney",
+    "05": "Structural steel, metal decking, handrails, misc metals",
+    "06": "Framing lumber, sheathing, rough carpentry, finish carpentry",
+    "07": "Roofing, insulation, vapor barriers, waterproofing, sealants",
+    "08": "Doors, windows, hardware, glazing, skylights",
+    "09": "Drywall, paint, flooring, tile, trim, ceiling finishes",
+    "10": "Signage, toilet accessories, fire extinguishers, shelving",
+    "11": "Appliances, residential equipment",
+    "12": "Cabinets, countertops, window treatments",
+    "13": "Clean rooms, swimming pools, special enclosures",
+    "14": "Elevators, escalators, dumbwaiters",
+    "21": "Sprinkler system, fire suppression piping",
+    "22": "Supply piping, waste piping, fixtures, water heater",
+    "23": "Furnace/AC, ductwork, controls, ventilation",
+    "25": "Building automation, integrated controls",
+    "26": "Service panel, branch wiring, outlets, switches, fixtures",
+    "27": "Data cabling, phone, network infrastructure",
+    "28": "Security system, smoke detectors, alarm panel",
+    "31": "Excavation, grading, backfill, compaction",
+    "32": "Paving, landscaping, fencing, site improvements",
+    "33": "Water/sewer connections, site utilities, stormwater",
+}
+
 # Map building types to their typical CSI division breakdowns
 DIVISION_BREAKDOWNS: dict[BuildingType, dict[str, float]] = {
     BuildingType.APARTMENT_LOW_RISE: _RESIDENTIAL_BREAKDOWN,

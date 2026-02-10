@@ -160,6 +160,13 @@ export interface DivisionCost {
   unit_cost?: number | null;
   total_cost?: number | null;
   geometry_refs?: GeometryRef[];
+  // Pricing derivation (transparency layer)
+  base_rate?: number | null;
+  location_factor?: number | null;
+  adjusted_rate?: number | null;
+  quantity_source?: string | null;
+  includes_description?: string | null;
+  rate_source?: string | null;
 }
 
 export interface Assumption {
@@ -182,6 +189,9 @@ export interface EstimateMetadata {
   engine_version: string;
   cost_data_version: string;
   estimation_method: string;
+  cost_data_source?: string;
+  location_factor_source?: string;
+  building_type_model?: string | null;
 }
 
 export interface SpaceCost {

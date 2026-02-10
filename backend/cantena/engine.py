@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from cantena.data.csi_divisions import CSI_DIVISIONS
+from cantena.data.csi_divisions import CSI_DIVISIONS, DIVISION_DESCRIPTIONS
 from cantena.models.enums import Confidence
 from cantena.models.estimate import (
     Assumption,
@@ -170,6 +170,8 @@ class CostEngine:
         breakdown = self._generate_division_breakdown(
             building=building,
             total_cost=total_cost,
+            location_factor=location_factor,
+            complexity_multiplier=complexity_multiplier,
             rooms=rooms,
             wall_segments=wall_segments,
             outer_boundary=outer_boundary,
@@ -193,6 +195,7 @@ class CostEngine:
         metadata = EstimateMetadata(
             engine_version=ENGINE_VERSION,
             cost_data_version=COST_DATA_VERSION,
+            building_type_model=entry.notes,
         )
 
         return CostEstimate(
@@ -308,6 +311,8 @@ class CostEngine:
         self,
         building: BuildingModel,
         total_cost: CostRange,
+        location_factor: float = 1.0,
+        complexity_multiplier: float = 1.0,
         rooms: list[DetectedRoom] | None = None,
         wall_segments: list[WallSegment] | None = None,
         outer_boundary: list[tuple[float, float]] | None = None,
@@ -316,6 +321,7 @@ class CostEngine:
     ) -> list[DivisionCost]:
         """Break down total cost into CSI division costs."""
         percentages = self._repository.get_division_breakdown(building.building_type)
+        effective_sf = gross_sf or building.gross_sf
 
         # Build a name lookup from CSI_DIVISIONS
         division_names: dict[str, str] = {
@@ -331,6 +337,17 @@ class CostEngine:
                 expected=total_cost.expected * fraction,
                 high=total_cost.high * fraction,
             )
+
+            # Compute pricing derivation fields for transparency
+            adjusted_rate: float | None = None
+            base_rate: float | None = None
+            if effective_sf > 0:
+                adjusted_rate = division_cost.expected / effective_sf
+                combined_factor = location_factor * complexity_multiplier
+                base_rate = (
+                    adjusted_rate / combined_factor if combined_factor != 0 else adjusted_rate
+                )
+
             breakdown.append(
                 DivisionCost(
                     csi_division=division_number,
@@ -338,6 +355,11 @@ class CostEngine:
                     cost=division_cost,
                     percent_of_total=pct,
                     source="RSMeans 2025 national average",
+                    base_rate=base_rate,
+                    location_factor=location_factor,
+                    adjusted_rate=adjusted_rate,
+                    includes_description=DIVISION_DESCRIPTIONS.get(division_number),
+                    rate_source="RSMeans Square Foot Models",
                 )
             )
 
@@ -424,23 +446,28 @@ class CostEngine:
             refs: list[GeometryRef] = []
             quantity: float | None = None
             unit: str | None = None
+            quantity_source: str | None = None
 
             if div_num in wall_divisions and wall_refs:
                 refs = wall_refs
                 quantity = perimeter_lf if perimeter_lf and perimeter_lf > 0 else None
                 unit = "LF"
+                quantity_source = "Measured from drawing geometry"
             elif div_num == "22" and wet_room_refs:
                 refs = wet_room_refs
                 quantity = wet_room_area_sf if wet_room_area_sf > 0 else None
                 unit = "SF"
+                quantity_source = "Measured from drawing geometry"
             elif div_num in room_divisions and room_refs:
                 refs = room_refs
                 quantity = room_area_sf if room_area_sf > 0 else None
                 unit = "SF"
+                quantity_source = "Measured from drawing geometry"
             elif footprint_refs:
                 refs = footprint_refs
                 quantity = gross_sf if gross_sf > 0 else None
                 unit = "SF"
+                quantity_source = "Calculated from building footprint"
 
             unit_cost: float | None = None
             total_cost: float | None = div.cost.expected if refs else None
@@ -458,6 +485,12 @@ class CostEngine:
                 unit_cost=unit_cost,
                 total_cost=total_cost,
                 geometry_refs=refs,
+                base_rate=div.base_rate,
+                location_factor=div.location_factor,
+                adjusted_rate=div.adjusted_rate,
+                quantity_source=quantity_source or div.quantity_source,
+                includes_description=div.includes_description,
+                rate_source=div.rate_source,
             ))
 
         return updated

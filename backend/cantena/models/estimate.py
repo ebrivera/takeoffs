@@ -62,6 +62,14 @@ class DivisionCost(BaseModel):
     total_cost: float | None = None
     geometry_refs: list[GeometryRef] = Field(default_factory=list)
 
+    # Pricing derivation fields (transparency layer)
+    base_rate: float | None = None
+    location_factor: float | None = None
+    adjusted_rate: float | None = None
+    quantity_source: str | None = None
+    includes_description: str | None = None
+    rate_source: str | None = None
+
 
 class Assumption(BaseModel):
     """A documented assumption made during estimation."""
@@ -89,6 +97,9 @@ class EstimateMetadata(BaseModel):
     engine_version: str
     cost_data_version: str
     estimation_method: str = "square_foot_conceptual"
+    cost_data_source: str = "RSMeans Square Foot Cost Models"
+    location_factor_source: str = "ENR City Cost Index"
+    building_type_model: str | None = None
 
 
 class SpaceCost(BaseModel):

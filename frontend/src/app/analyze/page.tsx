@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useRef, useState } from "react";
+import React, { useCallback, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { analyzePlan, estimateFromModel, getSampleEstimate } from "@/lib/api";
 import type {
@@ -509,6 +509,9 @@ function ResultsView({
   const [hoveredDivision, setHoveredDivision] = useState<string | null>(null);
   const [selectedDivision, setSelectedDivision] = useState<string | null>(null);
 
+  // Expanded division row (accordion)
+  const [expandedDivision, setExpandedDivision] = useState<string | null>(null);
+
   // Track if model has been edited
   const hasChanges = JSON.stringify(editedModel) !== JSON.stringify(result.building_model);
 
@@ -640,6 +643,70 @@ function ResultsView({
     </div>
   );
 
+  const confidencePercent = (() => {
+    const method = estimate.metadata.estimation_method;
+    if (method === "square_foot_conceptual") return "15–25";
+    return "20";
+  })();
+
+  const methodologyBadge = (
+    <div className="rounded-lg border border-[var(--color-navy-700)] bg-[var(--color-navy-900)]/80 px-5 py-3">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-[var(--color-navy-300)]">
+        <span className="font-semibold text-[var(--color-navy-200)]">Methodology:</span>
+        <span>RSMeans Square Foot Cost Model</span>
+        <span className="text-[var(--color-navy-600)]">&middot;</span>
+        {estimate.metadata.building_type_model && (
+          <>
+            <span>{estimate.metadata.building_type_model}</span>
+            <span className="text-[var(--color-navy-600)]">&middot;</span>
+          </>
+        )}
+        <span>
+          {estimate.building_summary.location} adjustment ({estimate.location_factor.toFixed(2)}&times;)
+        </span>
+        <span className="text-[var(--color-navy-600)]">&middot;</span>
+        <span>&plusmn;{confidencePercent}% conceptual-stage range</span>
+      </div>
+      <p className="mt-1.5 text-[10px] leading-relaxed text-[var(--color-navy-500)]">
+        Costs derived from RSMeans published building type models and CSI MasterFormat division
+        allocations, adjusted for location (ENR City Cost Index) and building complexity.
+      </p>
+    </div>
+  );
+
+  const dataSourcesFooter = (
+    <div className="rounded-lg border border-[var(--color-navy-700)] bg-[var(--color-navy-900)]/60 px-5 py-4">
+      <h4 className="mb-2 text-xs font-semibold uppercase tracking-wider text-[var(--color-navy-400)]">
+        Data Sources
+      </h4>
+      <ul className="space-y-1 text-xs text-[var(--color-navy-400)]">
+        <li>
+          <span className="text-[var(--color-navy-300)]">Cost rates:</span>{" "}
+          {estimate.metadata.cost_data_source ?? "RSMeans Square Foot Cost Models"} ({estimate.metadata.cost_data_version})
+        </li>
+        <li>
+          <span className="text-[var(--color-navy-300)]">Location adjustment:</span>{" "}
+          {estimate.metadata.location_factor_source ?? "ENR City Cost Index"} &mdash;{" "}
+          {estimate.building_summary.location} ({estimate.location_factor.toFixed(2)})
+        </li>
+        <li>
+          <span className="text-[var(--color-navy-300)]">Measurements:</span>{" "}
+          {hasGeometry
+            ? "Extracted from drawing geometry (vector analysis) where available; AI-estimated where not"
+            : "Calculated from building model parameters"}
+        </li>
+        <li>
+          <span className="text-[var(--color-navy-300)]">Division allocations:</span>{" "}
+          RSMeans typical percentage distributions for {estimate.building_summary.building_type}
+        </li>
+      </ul>
+      <p className="mt-3 text-[10px] italic text-[var(--color-navy-500)]">
+        Estimates are conceptual-level (&plusmn;{confidencePercent}%) intended for early-stage
+        budgeting. Not a substitute for detailed quantity takeoff.
+      </p>
+    </div>
+  );
+
   const handleExportCsv = useCallback(() => {
     const rows: string[] = [];
     const headers = hasGeometry
@@ -678,6 +745,8 @@ function ResultsView({
     URL.revokeObjectURL(url);
   }, [sortedBreakdown, hasGeometry, estimate.project_name]);
 
+  const colCount = hasGeometry ? 8 : 5;
+
   const divisionTable = (
     <div className="rounded-lg border border-[var(--color-navy-700)] bg-[var(--color-navy-900)] p-6">
       <div className="mb-4 flex items-center justify-between">
@@ -710,6 +779,7 @@ function ResultsView({
         <table className="w-full text-left text-sm">
           <thead>
             <tr className="border-b border-[var(--color-navy-700)]">
+              <th className="pb-2 pr-2 font-mono text-xs font-medium uppercase tracking-wider text-[var(--color-navy-500)]" />
               <th className="pb-2 pr-4 font-mono text-xs font-medium uppercase tracking-wider text-[var(--color-navy-500)]">
                 Div
               </th>
@@ -745,57 +815,159 @@ function ResultsView({
               const isSelected = selectedDivision === div.csi_division;
               const isHovered = hoveredDivision === div.csi_division;
               const isActive = isSelected || isHovered;
+              const isExpanded = expandedDivision === div.csi_division;
               return (
-                <tr
-                  key={div.csi_division}
-                  className={`cursor-pointer border-b border-[var(--color-navy-700)]/50 transition-colors ${
-                    isActive
-                      ? "bg-[var(--color-blueprint-500)]/10"
-                      : i < 3
-                        ? "bg-[var(--color-blueprint-500)]/3"
-                        : "hover:bg-[var(--color-navy-800)]"
-                  }`}
-                  onMouseEnter={() => setHoveredDivision(div.csi_division)}
-                  onMouseLeave={() => setHoveredDivision(null)}
-                  onClick={() => handleDivisionClick(div.csi_division)}
-                >
-                  <td className="py-2.5 pr-4 font-mono text-[var(--color-navy-400)]">
-                    <span className="inline-flex items-center gap-2">
-                      {hasGeometry && (
-                        <span
-                          className="inline-block h-2.5 w-2.5 rounded-full"
-                          style={{ backgroundColor: getDivisionColor(div.csi_division) }}
-                        />
-                      )}
-                      {div.csi_division}
-                    </span>
-                  </td>
-                  <td className="py-2.5 pr-4 text-[var(--color-navy-200)]">
-                    {div.division_name}
-                  </td>
-                  {hasGeometry && (
-                    <>
-                      <td className="py-2.5 pr-4 text-right font-mono text-[var(--color-navy-400)]">
-                        {div.quantity != null ? fmtQty(div.quantity) : "—"}
+                <React.Fragment key={div.csi_division}>
+                  <tr
+                    className={`cursor-pointer border-b border-[var(--color-navy-700)]/50 transition-colors ${
+                      isActive
+                        ? "bg-[var(--color-blueprint-500)]/10"
+                        : i < 3
+                          ? "bg-[var(--color-blueprint-500)]/3"
+                          : "hover:bg-[var(--color-navy-800)]"
+                    }`}
+                    onMouseEnter={() => setHoveredDivision(div.csi_division)}
+                    onMouseLeave={() => setHoveredDivision(null)}
+                    onClick={() => handleDivisionClick(div.csi_division)}
+                  >
+                    <td className="w-6 py-2.5 pr-1">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setExpandedDivision(isExpanded ? null : div.csi_division);
+                        }}
+                        className="flex h-5 w-5 items-center justify-center rounded text-[var(--color-navy-500)] transition-colors hover:bg-[var(--color-navy-700)] hover:text-white"
+                        aria-label={isExpanded ? "Collapse details" : "Expand details"}
+                      >
+                        <svg
+                          width="10"
+                          height="10"
+                          viewBox="0 0 10 10"
+                          fill="none"
+                          className={`transition-transform ${isExpanded ? "rotate-90" : ""}`}
+                        >
+                          <path d="M3 1l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                      </button>
+                    </td>
+                    <td className="py-2.5 pr-4 font-mono text-[var(--color-navy-400)]">
+                      <span className="inline-flex items-center gap-2">
+                        {hasGeometry && (
+                          <span
+                            className="inline-block h-2.5 w-2.5 rounded-full"
+                            style={{ backgroundColor: getDivisionColor(div.csi_division) }}
+                          />
+                        )}
+                        {div.csi_division}
+                      </span>
+                    </td>
+                    <td className="py-2.5 pr-4 text-[var(--color-navy-200)]">
+                      {div.division_name}
+                    </td>
+                    {hasGeometry && (
+                      <>
+                        <td className="py-2.5 pr-4 text-right font-mono text-[var(--color-navy-400)]">
+                          {div.quantity != null ? fmtQty(div.quantity) : "—"}
+                        </td>
+                        <td className="py-2.5 pr-4 text-right font-mono text-xs text-[var(--color-navy-500)]">
+                          {div.unit ?? "—"}
+                        </td>
+                        <td className="py-2.5 pr-4 text-right font-mono text-[var(--color-navy-400)]">
+                          {div.unit_cost != null ? fmtUnit(div.unit_cost) : "—"}
+                        </td>
+                      </>
+                    )}
+                    <td className="py-2.5 pr-4 text-right font-mono text-white">
+                      {fmt(div.cost.expected)}
+                    </td>
+                    <td className="py-2.5 pr-4 text-right font-mono text-[var(--color-navy-400)]">
+                      {div.percent_of_total.toFixed(1)}%
+                    </td>
+                    <td className="py-2.5 text-right font-mono text-xs text-[var(--color-navy-500)]">
+                      {fmt(div.cost.low)} &ndash; {fmt(div.cost.high)}
+                    </td>
+                  </tr>
+                  {isExpanded && (
+                    <tr className="border-b border-[var(--color-navy-700)]/50 bg-[var(--color-navy-800)]/50">
+                      <td colSpan={colCount + 1} className="px-4 py-3">
+                        <div className="rounded border border-[var(--color-navy-700)] bg-[var(--color-navy-900)]/80 px-4 py-3">
+                          <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-[var(--color-navy-400)]">
+                            How this was calculated
+                          </p>
+                          <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 font-mono text-xs">
+                            {div.base_rate != null && (
+                              <>
+                                <span className="text-[var(--color-navy-400)]">Base rate:</span>
+                                <span className="text-[var(--color-navy-200)]">
+                                  {fmtUnit(div.base_rate)}/{div.unit ?? "SF"}{" "}
+                                  <span className="text-[var(--color-navy-500)]">
+                                    ({div.rate_source ?? "RSMeans"}, {estimate.building_summary.building_type})
+                                  </span>
+                                </span>
+                              </>
+                            )}
+                            {div.location_factor != null && (
+                              <>
+                                <span className="text-[var(--color-navy-400)]">Location adj:</span>
+                                <span className="text-[var(--color-navy-200)]">
+                                  &times; {div.location_factor.toFixed(2)}{" "}
+                                  <span className="text-[var(--color-navy-500)]">
+                                    ({estimate.building_summary.location} &mdash; ENR index)
+                                  </span>
+                                </span>
+                              </>
+                            )}
+                            {div.adjusted_rate != null && (
+                              <>
+                                <span className="text-[var(--color-navy-400)]">Adjusted rate:</span>
+                                <span className="text-white">{fmtUnit(div.adjusted_rate)}/{div.unit ?? "SF"}</span>
+                              </>
+                            )}
+                            {div.quantity != null && (
+                              <>
+                                <span className="text-[var(--color-navy-400)]">Measured area:</span>
+                                <span className="text-[var(--color-navy-200)]">
+                                  {fmtQty(div.quantity)} {div.unit ?? "SF"}{" "}
+                                  {div.quantity_source && (
+                                    <span className="text-[var(--color-navy-500)]">
+                                      ({div.quantity_source.toLowerCase()})
+                                    </span>
+                                  )}
+                                </span>
+                              </>
+                            )}
+                            <span className="text-[var(--color-navy-400)]">Line total:</span>
+                            <span className="text-white">
+                              {fmt(div.cost.expected)}
+                              {div.adjusted_rate != null && div.quantity != null && (
+                                <span className="text-[var(--color-navy-500)]">
+                                  {" "}({fmtUnit(div.adjusted_rate)} &times; {fmtQty(div.quantity)})
+                                </span>
+                              )}
+                            </span>
+                          </div>
+                          {div.includes_description && (
+                            <div className="mt-2 border-t border-[var(--color-navy-700)]/50 pt-2">
+                              <span className="text-[10px] font-semibold uppercase tracking-wider text-[var(--color-navy-400)]">
+                                What&apos;s included:{" "}
+                              </span>
+                              <span className="text-xs text-[var(--color-navy-300)]">
+                                {div.includes_description}
+                              </span>
+                            </div>
+                          )}
+                          <div className="mt-2 border-t border-[var(--color-navy-700)]/50 pt-2 text-xs">
+                            <span className="text-[var(--color-navy-500)]">Confidence: </span>
+                            <span className="text-[var(--color-navy-300)]">
+                              &plusmn;{confidencePercent}% &rarr; {fmt(div.cost.low)} &ndash; {fmt(div.cost.high)}
+                            </span>
+                          </div>
+                        </div>
                       </td>
-                      <td className="py-2.5 pr-4 text-right font-mono text-xs text-[var(--color-navy-500)]">
-                        {div.unit ?? "—"}
-                      </td>
-                      <td className="py-2.5 pr-4 text-right font-mono text-[var(--color-navy-400)]">
-                        {div.unit_cost != null ? fmtUnit(div.unit_cost) : "—"}
-                      </td>
-                    </>
+                    </tr>
                   )}
-                  <td className="py-2.5 pr-4 text-right font-mono text-white">
-                    {fmt(div.cost.expected)}
-                  </td>
-                  <td className="py-2.5 pr-4 text-right font-mono text-[var(--color-navy-400)]">
-                    {div.percent_of_total.toFixed(1)}%
-                  </td>
-                  <td className="py-2.5 text-right font-mono text-xs text-[var(--color-navy-500)]">
-                    {fmt(div.cost.low)} &ndash; {fmt(div.cost.high)}
-                  </td>
-                </tr>
+                </React.Fragment>
               );
             })}
           </tbody>
@@ -867,6 +1039,7 @@ function ResultsView({
     return (
       <section className="mt-12 space-y-6">
         {headerCard}
+        {methodologyBadge}
 
         {/* Split panel: drawing + breakdown */}
         <div className="flex flex-col gap-6 lg:flex-row">
@@ -885,6 +1058,7 @@ function ResultsView({
           {/* Right: Breakdown + details */}
           <div className="w-full space-y-6 lg:w-[45%]">
             {divisionTable}
+            {dataSourcesFooter}
 
             <BuildingParametersEditor
               model={editedModel}
@@ -919,6 +1093,7 @@ function ResultsView({
   return (
     <section className="mt-12 space-y-6">
       {headerCard}
+      {methodologyBadge}
 
       <BuildingParametersEditor
         model={editedModel}
@@ -943,6 +1118,7 @@ function ResultsView({
       />
 
       {divisionTable}
+      {dataSourcesFooter}
       {bottomSections}
     </section>
   );

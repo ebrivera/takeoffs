@@ -1,0 +1,1224 @@
+
+╭─── Claude Code v2.1.38 ──────────────────────────────────────────────────────╮
+│                                                    │ Tips for getting        │
+│                Welcome back Ernesto!               │ started                 │
+│                                                    │ Run /init to create a … │
+│                      ▗ ▗   ▖ ▖                     │ ─────────────────────── │
+│                                                    │ Recent activity         │
+│                        ▘▘ ▝▝                       │ No recent activity      │
+│                                                    │                         │
+│      Opus 4.6 · API Usage Billing · Ernesto‘s      │                         │
+│      Individual Org                                │                         │
+│           ~/Desktop/dev_dump/cm/takeoffs           │                         │
+╰──────────────────────────────────────────────────────────────────────────────╯
+
+❯ # Make Pricing Transparent: Show Where Every Dollar Comes From            
+                                                                            
+  ## Context                                                                
+                                                                            
+  Direct feedback from a potential user reviewing the demo: "Pricing: First 
+   thing I think is 'what is that.' Not enough detail, doesn't break down   
+  what exactly the material usage is / where we're getting the data from."  
+                                                                            
+  Right now the division breakdown shows raw numbers — "09 Finishes: 502    
+  SF, $40.05/SF, $20,107" — but nothing about WHY $40.05/SF or WHERE that   
+  rate comes from. A construction PM looking at this has no reason to trust 
+   it. The numbers look arbitrary.                                          
+                                                                            
+  Our cost engine actually has a coherent methodology: it uses RSMeans      
+  square foot cost models, maps building parameters to CSI divisions with   
+  known percentage allocations, applies location factors (city cost index), 
+   and adjusts for complexity. None of that is visible in the UI. The user  
+  sees output but not reasoning.                                            
+                                                                            
+  This is the #1 trust problem. Gunnar's feedback from PMR was explicit: he 
+   needs to "still learn and understand the material" — the tool must be    
+  transparent enough that using it makes the estimator BETTER, not lazier.  
+                                                                            
+  ---                                                                       
+                                                                            
+  ## A. Add a "methodology" badge/disclosure at the top of the estimate     
+                                                                            
+  Right above the division breakdown table, add a concise methodology       
+  statement that establishes credibility. Something like:                   
+                                                                            
+  > **Methodology:** RSMeans Square Foot Cost Model · {building_type} ·     
+  {structural_system} · {location} adjustment ({location_factor}×) ·        
+  {design_stage} confidence range                                           
+  >                                                                         
+  > Costs derived from RSMeans published building type models and CSI       
+  MasterFormat division allocations, adjusted for location (ENR City Cost   
+  Index) and building complexity. [Learn more ↗]                            
+                                                                            
+  This should be a single line or a small collapsible section — not a wall  
+  of text. The key elements to surface:                                     
+  - **RSMeans** by name (this is the industry standard — PMs know and trust 
+   it)                                                                      
+  - **Building type model** used (e.g., "Residential, 1-2 Story, Wood       
+  Frame")                                                                   
+  - **Location factor** applied (e.g., "Boston, MA — 1.12×")                
+  - **Confidence range** basis (e.g., "±17% for conceptual stage")          
+                                                                            
+  **Backend data needed:** The cost engine already computes the location    
+  factor and knows the building type. Add these to the API response if not  
+  already present:                                                          
+  - `estimation_method`: "rsmeans_square_foot"                              
+  - `cost_data_source`: "RSMeans Square Foot Cost Models (2024)"            
+  - `location_factor`: float (e.g., 1.12)                                   
+  - `location_factor_source`: "ENR City Cost Index"                         
+  - `building_type_model`: string (the RSMeans category matched, e.g.,      
+  "Residential, 1-2 Story, Wood Frame")                                     
+                                                                            
+  Check the existing `EstimateMetadata` model and `CostEstimate` response — 
+   some of these fields may already exist but not be surfaced in the        
+  frontend.                                                                 
+                                                                            
+  ---                                                                       
+                                                                            
+  ## B. Expand each CSI division row to show pricing derivation             
+                                                                            
+  Each division row currently shows: Division number, Name, Quantity, Unit, 
+   $/Unit, Expected Cost, %, Range.                                         
+                                                                            
+  Add an expandable detail row (accordion/disclosure) that shows HOW the    
+  line item cost was derived. When the user clicks or expands a division    
+  row, they see:                                                            
+                                                                            
+  ### Derivation format:                                                    
+                                                                            
+  ```                                                                       
+  09 Finishes — $20,107                                              [▼     
+  expand]                                                                   
+                                                                            
+    How this was calculated:                                                
+    ┌─────────────────────────────────────────────────────────────────┐     
+    │ Base rate:        $35.76/SF  (RSMeans, Residential Wood Frame)  │     
+    │ Location adj:     × 1.12    (Boston, MA — ENR index)           │      
+    │ Adjusted rate:    $40.05/SF                                     │     
+    │ Measured area:    502 SF     (from drawing geometry)            │     
+    │ Line total:       $20,107   ($40.05 × 502)                    │       
+    │                                                                 │     
+    │ What's included:  Paint, drywall, flooring, trim, ceramic tile  │     
+    │ Source:           RSMeans Square Foot Models, Div 09 allocation │     
+    │ Confidence:       ±17%  →  $16,709 – $23,533                  │       
+    └─────────────────────────────────────────────────────────────────┘     
+  ```                                                                       
+                                                                            
+  The key pieces for each division:                                         
+                                                                            
+  1. **Base rate** — the national average $/unit BEFORE location            
+  adjustment, with source attribution ("RSMeans, {building_type}")          
+  2. **Location adjustment** — the multiplier and what city/index it comes  
+  from                                                                      
+  3. **Adjusted rate** — base × location factor = the $/unit shown in the   
+  summary row                                                               
+  4. **Measured quantity** — how we got the quantity (from drawing          
+  geometry, from VLM estimate, from footprint calculation) with the source  
+  noted                                                                     
+  5. **Line total** — the simple multiplication                             
+  6. **What's included** — a brief description of what this CSI division    
+  covers. This is crucial for non-estimators. "Finishes" means nothing to   
+  most people. "Paint, drywall, flooring, trim, ceramic tile" is            
+  immediately understandable.                                               
+  7. **Confidence range** — the ±% and what drives it (design stage,        
+  measurement confidence)                                                   
+                                                                            
+  ### Backend changes needed:                                               
+                                                                            
+  The cost engine needs to return additional fields per `DivisionCost`:     
+                                                                            
+  ```python                                                                 
+  class DivisionCost(BaseModel):                                            
+      # ... existing fields ...                                             
+                                                                            
+      # NEW: pricing derivation                                             
+      base_rate: float | None = None          # national avg $/unit before  
+  location                                                                  
+      location_factor: float | None = None    # multiplier applied          
+      adjusted_rate: float | None = None      # base_rate × location_factor 
+      quantity_source: str | None = None       # "drawing_geometry" |       
+  "vlm_estimate" | "footprint_calculation"                                  
+      includes_description: str | None = None  # human-readable scope       
+  description                                                               
+      rate_source: str | None = None           # "RSMeans Square Foot       
+  Models, 2024"                                                             
+  ```                                                                       
+                                                                            
+  **Where this data comes from in the engine:**                             
+                                                                            
+  Look at the `CostEngine.estimate()` method. It already computes:          
+  - The total cost per division from percentage allocations × total         
+  building cost                                                             
+  - The location factor (city cost index)                                   
+  - The unit cost as `total_cost / quantity`                                
+                                                                            
+  What it needs to also compute/store:                                      
+  - `base_rate = unit_cost / location_factor` (reverse out the location     
+  adjustment to show the national average)                                  
+  - `rate_source` is always "RSMeans Square Foot Models" for our current    
+  methodology                                                               
+  - `quantity_source` depends on whether geometry was available:            
+    - If geometry measurements → "Measured from drawing geometry"           
+    - If VLM estimate → "Estimated by AI analysis"                          
+    - If footprint calculation → "Calculated from building footprint"       
+  - `includes_description` — add a static lookup table mapping CSI division 
+   numbers to plain-English scope descriptions:                             
+                                                                            
+  ```python                                                                 
+  _DIVISION_DESCRIPTIONS: dict[str, str] = {                                
+      "01": "Project management, temporary facilities, permits, insurance", 
+      "03": "Foundations, slabs, footings, structural concrete",            
+      "04": "Brick, block, stone veneer, mortar, chimney",                  
+      "05": "Structural steel, metal decking, handrails, misc metals",      
+      "06": "Framing lumber, sheathing, rough carpentry, finish carpentry", 
+      "07": "Roofing, insulation, vapor barriers, waterproofing, sealants", 
+      "08": "Doors, windows, hardware, glazing, skylights",                 
+      "09": "Drywall, paint, flooring, tile, trim, ceiling finishes",       
+      "10": "Signage, toilet accessories, fire extinguishers, shelving",    
+      "11": "Appliances, residential equipment",                            
+      "12": "Cabinets, countertops, window treatments",                     
+      "14": "Residential elevator or dumbwaiter (if applicable)",           
+      "21": "Sprinkler system, fire suppression piping",                    
+      "22": "Supply piping, waste piping, fixtures, water heater",          
+      "23": "Furnace/AC, ductwork, controls, ventilation",                  
+      "26": "Service panel, branch wiring, outlets, switches, fixtures",    
+      "27": "Data cabling, phone, network infrastructure",                  
+      "28": "Security system, smoke detectors, alarm panel",                
+      "31": "Excavation, grading, backfill, compaction",                    
+      "32": "Paving, landscaping, fencing, site improvements",              
+      "33": "Water/sewer connections, site utilities, stormwater",          
+  }                                                                         
+  ```                                                                       
+                                                                            
+  These descriptions should be written for a PM, not an estimator. Use      
+  language that someone who isn't a cost engineer can understand. Avoid     
+  jargon where possible.                                                    
+                                                                            
+  ---                                                                       
+                                                                            
+  ## C. Add a "Data Sources" footer section                                 
+                                                                            
+  Below the division breakdown, add a small footer section:                 
+                                                                            
+  > **Data Sources**                                                        
+  > - Cost rates: RSMeans Square Foot Cost Models (2024 edition)            
+  > - Location adjustment: ENR City Cost Index — Boston, MA (1.12)          
+  > - Measurements: Extracted from drawing geometry (vector analysis) where 
+   available; AI-estimated where not                                        
+  > - Division allocations: RSMeans typical percentage distributions for    
+  {building_type}                                                           
+  >                                                                         
+  > *Estimates are conceptual-level (±15–25%) intended for early-stage      
+  budgeting. Not a substitute for detailed quantity takeoff.*               
+                                                                            
+  This gives the user a single place to understand the entire methodology.  
+  It also manages expectations — "conceptual-level" prevents someone from   
+  treating this as a bid number.                                            
+                                                                            
+  ---                                                                       
+                                                                            
+  ## Constraints                                                            
+                                                                            
+  - `mypy --strict` on backend changes                                      
+  - `pytest` — all tests pass                                               
+  - The division description lookup should be a simple dict, not a database 
+   table (it's static reference data)                                       
+  - The expandable row should be collapsed by default — the summary row is  
+  the primary view                                                          
+  - Don't change the actual cost calculation logic — this is purely about   
+  surfacing what's already computed                                         
+  - Keep backward compatibility — all new API fields are optional with      
+  defaults                                                                  
+  - Do NOT run `npm run typecheck` or `npm run lint` — skip frontend        
+  linting entirely, it takes too long                                       
+                                                                            
+  ## Definition of Done                                                     
+                                                                            
+  1. **RSMeans is named:** the methodology section and expanded division    
+  details explicitly reference RSMeans as the cost data source. A PM        
+  reading this immediately recognizes the provenance.                       
+  2. **Every division is expandable:** clicking a division row reveals base 
+   rate, location adjustment, adjusted rate, quantity source, scope         
+  description, and confidence range.                                        
+  3. **Scope descriptions are readable:** each CSI division shows a         
+  plain-English "What's included" list that a non-estimator can understand. 
+   "09 Finishes" now says "Drywall, paint, flooring, tile, trim, ceiling    
+  finishes."                                                                
+  5. **Data sources footer exists:** a concise section at the bottom        
+  attributes RSMeans, ENR, and describes the methodology.                   
+  6. **No calculation changes:** the actual cost numbers are unchanged —    
+  this is purely a transparency layer.                                      
+  7. **All quality gates pass:** pytest, mypy --strict. Skip npm            
+  typecheck/lint.                                                           
+
+⏺ I'll start by exploring the codebase to understand the current structure
+  before planning the implementation.
+
+⏺ Explore(Explore backend cost engine)
+  ⎿  Done (17 tool uses · 61.1k tokens · 51s)
+
+⏺ Explore(Explore frontend estimate UI)
+  ⎿  Done (13 tool uses · 52.5k tokens · 44s)
+
+⏺ Now let me read the key files I'll need to modify directly.
+
+⏺ Read 3 files (ctrl+o to expand)
+
+⏺ Let me read the analyze page to see the division table and layout in detail.
+
+⏺ Read 2 files (ctrl+o to expand)
+
+⏺ Let me also check the rest of the page layout and the existing tests.
+
+⏺ Searched for 2 patterns, read 3 files (ctrl+o to expand)
+
+⏺ Let me check the seed data to understand the building type model labels.
+
+⏺ Searched for 1 pattern, read 4 files (ctrl+o to expand)
+
+⏺ Now I have a complete picture. Let me create tasks and start implementing.
+
+⏺ Starting with the backend model changes. First, I'll add the division
+  descriptions lookup and the new fields.
+
+⏺ Update(backend/cantena/models/estimate.py)
+  ⎿  Added 8 lines
+      62      total_cost: float | None = None                            
+      63      geometry_refs: list[GeometryRef] =                         
+          Field(default_factory=list)                                    
+      64                                                                 
+      65 +    # Pricing derivation fields (transparency layer)           
+      66 +    base_rate: float | None = None                             
+      67 +    location_factor: float | None = None                       
+      68 +    adjusted_rate: float | None = None                         
+      69 +    quantity_source: str | None = None                         
+      70 +    includes_description: str | None = None                    
+      71 +    rate_source: str | None = None                             
+      72                                                                 
+      73 +                                                               
+      74  class Assumption(BaseModel):                                   
+      75      """A documented assumption made during estimation."""      
+      76                                                                 
+
+⏺ Update(backend/cantena/models/estimate.py)
+  ⎿  Added 3 lines
+       97      engine_version: str                                       
+       98      cost_data_version: str                                    
+       99      estimation_method: str = "square_foot_conceptual"         
+      100 +    cost_data_source: str = "RSMeans Square Foot Cost Models" 
+      101 +    location_factor_source: str = "ENR City Cost Index"       
+      102 +    building_type_model: str | None = None                    
+      103                                                                
+      104                                                                
+      105  class SpaceCost(BaseModel):                                   
+
+⏺ Now add the division descriptions lookup to csi_divisions.py.
+
+⏺ Update(backend/cantena/data/csi_divisions.py)
+  ⎿  Added 29 lines
+      220  }                                                             
+      221                                                                
+      222                                                                
+      223 +# Plain-English scope descriptions for each CSI division.     
+      224 +# Written for a PM, not an estimator — avoids jargon where    
+          +possible.                                                     
+      225 +DIVISION_DESCRIPTIONS: dict[str, str] = {                     
+      226 +    "01": "Project management, temporary facilities, permits, 
+          + insurance",                                                  
+      227 +    "02": "Demolition, site remediation, hazardous material   
+          +removal",                                                     
+      228 +    "03": "Foundations, slabs, footings, structural           
+          +concrete",                                                    
+      229 +    "04": "Brick, block, stone veneer, mortar, chimney",      
+      230 +    "05": "Structural steel, metal decking, handrails, misc   
+          +metals",                                                      
+      231 +    "06": "Framing lumber, sheathing, rough carpentry, finish 
+          + carpentry",                                                  
+      232 +    "07": "Roofing, insulation, vapor barriers,               
+          +waterproofing, sealants",                                     
+      233 +    "08": "Doors, windows, hardware, glazing, skylights",     
+      234 +    "09": "Drywall, paint, flooring, tile, trim, ceiling      
+          +finishes",                                                    
+      235 +    "10": "Signage, toilet accessories, fire extinguishers,   
+          +shelving",                                                    
+      236 +    "11": "Appliances, residential equipment",                
+      237 +    "12": "Cabinets, countertops, window treatments",         
+      238 +    "13": "Clean rooms, swimming pools, special enclosures",  
+      239 +    "14": "Elevators, escalators, dumbwaiters",               
+      240 +    "21": "Sprinkler system, fire suppression piping",        
+      241 +    "22": "Supply piping, waste piping, fixtures, water       
+          +heater",                                                      
+      242 +    "23": "Furnace/AC, ductwork, controls, ventilation",      
+      243 +    "25": "Building automation, integrated controls",         
+      244 +    "26": "Service panel, branch wiring, outlets, switches,   
+          +fixtures",                                                    
+      245 +    "27": "Data cabling, phone, network infrastructure",      
+      246 +    "28": "Security system, smoke detectors, alarm panel",    
+      247 +    "31": "Excavation, grading, backfill, compaction",        
+      248 +    "32": "Paving, landscaping, fencing, site improvements",  
+      249 +    "33": "Water/sewer connections, site utilities,           
+          +stormwater",                                                  
+      250 +}                                                             
+      251 +                                                              
+      252  # Map building types to their typical CSI division breakdowns 
+      253  DIVISION_BREAKDOWNS: dict[BuildingType, dict[str, float]] = { 
+      254      BuildingType.APARTMENT_LOW_RISE: _RESIDENTIAL_BREAKDOWN,  
+
+⏺ Now update the engine to populate the new fields. I need to add the
+  DIVISION_DESCRIPTIONS import and pass location_factor into the division
+  breakdown method, then compute the base_rate and other derivation fields.
+
+⏺ Update(backend/cantena/engine.py)
+  ⎿  Added 1 line, removed 1 line
+      19                                                                 
+      20  from typing import TYPE_CHECKING                               
+      21                                                                 
+      22 -from cantena.data.csi_divisions import CSI_DIVISIONS           
+      22 +from cantena.data.csi_divisions import CSI_DIVISIONS           
+         +, DIVISION_DESCRIPTIONS                                        
+      23  from cantena.models.enums import Confidence                    
+      24  from cantena.models.estimate import (                          
+      25      Assumption,                                                
+
+⏺ Now I need to update _generate_division_breakdown to accept location_factor
+  and complexity_multiplier and populate the new fields. Let me also update the
+  call site.
+
+⏺ Update(backend/cantena/engine.py)
+  ⎿  Added 2 lines
+      170          breakdown = self._generate_division_breakdown(        
+      171              building=building,                                
+      172              total_cost=total_cost,                            
+      173 +            location_factor=location_factor,                  
+      174 +            complexity_multiplier=complexity_multiplier,      
+      175              rooms=rooms,                                      
+      176              wall_segments=wall_segments,                      
+      177              outer_boundary=outer_boundary,                    
+
+⏺ Now update the metadata construction to include the new fields, using the seed
+   entry's notes as the building type model label.
+
+⏺ Update(backend/cantena/engine.py)
+  ⎿  Added 1 line
+      195          metadata = EstimateMetadata(                          
+      196              engine_version=ENGINE_VERSION,                    
+      197              cost_data_version=COST_DATA_VERSION,              
+      198 +            building_type_model=entry.notes,                  
+      199          )                                                     
+      200                                                                
+      201          return CostEstimate(                                  
+
+⏺ Now update _generate_division_breakdown to accept and use the new parameters.
+
+⏺ Update(backend/cantena/engine.py)
+  ⎿  Added 19 lines
+      311          self,                                                 
+      312          building: BuildingModel,                              
+      313          total_cost: CostRange,                                
+      314 +        location_factor: float = 1.0,                         
+      315 +        complexity_multiplier: float = 1.0,                   
+      316          rooms: list[DetectedRoom] | None = None,              
+      317          wall_segments: list[WallSegment] | None = None,       
+      318          outer_boundary: list[tuple[float, float]] | None =    
+           None,                                                         
+     ...
+      319      ) -> list[DivisionCost]:                                  
+      320          """Break down total cost into CSI division costs."""  
+      321          percentages = self._repository.get_division_breakdown 
+           (building.building_type)                                      
+      322 +        effective_sf = gross_sf or building.gross_sf          
+      323                                                                
+      324          # Build a name lookup from CSI_DIVISIONS              
+      325          division_names: dict[str, str] = {                    
+     ...
+      334                  expected=total_cost.expected * fraction,      
+      335                  high=total_cost.high * fraction,              
+      336              )                                                 
+      337 +                                                              
+      338 +            # Compute pricing derivation fields for           
+          +transparency                                                  
+      339 +            adjusted_rate: float | None = None                
+      340 +            base_rate: float | None = None                    
+      341 +            if effective_sf > 0:                              
+      342 +                adjusted_rate = division_cost.expected /      
+          +effective_sf                                                  
+      343 +                combined_factor = location_factor *           
+          +complexity_multiplier                                         
+      344 +                base_rate = (                                 
+      345 +                    adjusted_rate / combined_factor if        
+          +combined_factor != 0 else adjusted_rate                       
+      346 +                )                                             
+      347 +                                                              
+      348              breakdown.append(                                 
+      349                  DivisionCost(                                 
+      350                      csi_division=division_number,             
+     ...
+      341                      cost=division_cost,                       
+      342                      percent_of_total=pct,                     
+      343                      source="RSMeans 2025 national average",   
+      344 +                    base_rate=base_rate,                      
+      345 +                    location_factor=location_factor,          
+      346 +                    adjusted_rate=adjusted_rate,              
+      347 +                    includes_description=DIVISION_DESCRIPTION 
+          +S.get(division_number),                                       
+      348 +                    rate_source="RSMeans Square Foot Models", 
+      349                  )                                             
+      350              )                                                 
+      351                                                                
+
+⏺ Now I need to update _attach_geometry_refs to preserve the new fields and add
+  quantity_source. Let me read the current state of that method.
+
+⏺ Read 1 file (ctrl+o to expand)
+
+⏺ I need to update _attach_geometry_refs to preserve the new derivation fields
+  from each division and add quantity_source.
+
+⏺ Update(backend/cantena/engine.py)
+  ⎿  Added 11 lines
+      446              refs: list[GeometryRef] = []                      
+      447              quantity: float | None = None                     
+      448              unit: str | None = None                           
+      449 +            quantity_source: str | None = None                
+      450                                                                
+      451              if div_num in wall_divisions and wall_refs:       
+      452                  refs = wall_refs                              
+      453                  quantity = perimeter_lf if perimeter_lf and   
+           perimeter_lf > 0 else None                                    
+      454                  unit = "LF"                                   
+      455 +                quantity_source = "Measured from drawing      
+          +geometry"                                                     
+      456              elif div_num == "22" and wet_room_refs:           
+      457                  refs = wet_room_refs                          
+      458                  quantity = wet_room_area_sf if                
+           wet_room_area_sf > 0 else None                                
+      459                  unit = "SF"                                   
+      460 +                quantity_source = "Measured from drawing      
+          +geometry"                                                     
+      461              elif div_num in room_divisions and room_refs:     
+      462                  refs = room_refs                              
+      463                  quantity = room_area_sf if room_area_sf > 0   
+           else None                                                     
+      464                  unit = "SF"                                   
+      465 +                quantity_source = "Measured from drawing      
+          +geometry"                                                     
+      466              elif footprint_refs:                              
+      467                  refs = footprint_refs                         
+      468                  quantity = gross_sf if gross_sf > 0 else None 
+      469                  unit = "SF"                                   
+      470 +                quantity_source = "Calculated from building   
+          +footprint"                                                    
+      471                                                                
+      472              unit_cost: float | None = None                    
+      473              total_cost: float | None = div.cost.expected if   
+           refs else None                                                
+     ...
+      480                  unit_cost=unit_cost,                          
+      481                  total_cost=total_cost,                        
+      482                  geometry_refs=refs,                           
+      483 +                base_rate=div.base_rate,                      
+      484 +                location_factor=div.location_factor,          
+      485 +                adjusted_rate=div.adjusted_rate,              
+      486 +                quantity_source=quantity_source or            
+          +div.quantity_source,                                          
+      487 +                                                              
+          +includes_description=div.includes_description,                
+      488 +                rate_source=div.rate_source,                  
+      489              ))                                                
+      490                                                                
+      491          return updated                                        
+
+⏺ Now update the TypeScript types.
+
+⏺ Update(frontend/src/lib/types.ts)
+  ⎿  Added 7 lines
+      160    unit_cost?: number | null;                                  
+      161    total_cost?: number | null;                                 
+      162    geometry_refs?: GeometryRef[];                              
+      163 +  // Pricing derivation (transparency layer)                  
+      164 +  base_rate?: number | null;                                  
+      165 +  location_factor?: number | null;                            
+      166 +  adjusted_rate?: number | null;                              
+      167 +  quantity_source?: string | null;                            
+      168 +  includes_description?: string | null;                       
+      169 +  rate_source?: string | null;                                
+      170  }                                                             
+      171                                                                
+      172  export interface Assumption {                                 
+
+⏺ Update(frontend/src/lib/types.ts)
+  ⎿  Added 3 lines
+      189    engine_version: string;                                     
+      190    cost_data_version: string;                                  
+      191    estimation_method: string;                                  
+      192 +  cost_data_source?: string;                                  
+      193 +  location_factor_source?: string;                            
+      194 +  building_type_model?: string | null;                        
+      195  }                                                             
+      196                                                                
+      197  export interface SpaceCost {                                  
+
+⏺ Now for the big frontend change. Let me read the full context around the
+  division table area to understand where to add the methodology badge,
+  expandable rows, and data sources footer. Let me also check the beginning of
+  the file for imports and state.
+
+⏺ Read 1 file (ctrl+o to expand)
+
+⏺ Now I have a clear picture. I need to:
+
+  1. Add expandedDivision state
+  2. Add a methodology badge between headerCard and divisionTable
+  3. Make division rows expandable with an accordion
+  4. Add a data sources footer after the division table
+
+  Let me implement all the frontend changes.
+
+⏺ Update(frontend/src/app/analyze/page.tsx)
+  ⎿  Added 3 lines
+      509    const [hoveredDivision, setHoveredDivision] =               
+           useState<string | null>(null);                                
+      510    const [selectedDivision, setSelectedDivision] =             
+           useState<string | null>(null);                                
+      511                                                                
+      512 +  // Expanded division row (accordion)                        
+      513 +  const [expandedDivision, setExpandedDivision] =             
+          +useState<string | null>(null);                                
+      514 +                                                              
+      515    // Track if model has been edited                           
+      516    const hasChanges = JSON.stringify(editedModel) !==          
+           JSON.stringify(result.building_model);                        
+      517                                                                
+
+⏺ Now add the methodology badge. I'll insert it right after the headerCard
+  definition and before the handleExportCsv.
+
+⏺ Update(frontend/src/app/analyze/page.tsx)
+  ⎿  Added 64 lines
+      643      </div>                                                    
+      644    );                                                          
+      645                                                                
+      646 +  const confidencePercent = (() => {                          
+      647 +    const method = estimate.metadata.estimation_method;       
+      648 +    if (method === "square_foot_conceptual") return "15–25";  
+      649 +    return "20";                                              
+      650 +  })();                                                       
+      651 +                                                              
+      652 +  const methodologyBadge = (                                  
+      653 +    <div className="rounded-lg border                         
+          +border-[var(--color-navy-700)] bg-[var(--color-navy-900)]/80  
+          +px-5 py-3">                                                   
+      654 +      <div className="flex flex-wrap items-center gap-x-2     
+          +gap-y-1 text-xs text-[var(--color-navy-300)]">                
+      655 +        <span className="font-semibold                        
+          +text-[var(--color-navy-200)]">Methodology:</span>             
+      656 +        <span>RSMeans Square Foot Cost Model</span>           
+      657 +        <span                                                 
+          +className="text-[var(--color-navy-600)]">&middot;</span>      
+      658 +        {estimate.metadata.building_type_model && (           
+      659 +          <>                                                  
+      660 +                                                              
+          +<span>{estimate.metadata.building_type_model}</span>          
+      661 +            <span                                             
+          +className="text-[var(--color-navy-600)]">&middot;</span>      
+      662 +          </>                                                 
+      663 +        )}                                                    
+      664 +        <span>                                                
+      665 +          {estimate.building_summary.location} adjustment     
+          +({estimate.location_factor.toFixed(2)}&times;)                
+      666 +        </span>                                               
+      667 +        <span                                                 
+          +className="text-[var(--color-navy-600)]">&middot;</span>      
+      668 +        <span>&plusmn;{confidencePercent}% conceptual-stage   
+          +range</span>                                                  
+      669 +      </div>                                                  
+      670 +      <p className="mt-1.5 text-[10px] leading-relaxed        
+          +text-[var(--color-navy-500)]">                                
+      671 +        Costs derived from RSMeans published building type    
+          +models and CSI MasterFormat division                          
+      672 +        allocations, adjusted for location (ENR City Cost     
+          +Index) and building complexity.                               
+      673 +      </p>                                                    
+      674 +    </div>                                                    
+      675 +  );                                                          
+      676 +                                                              
+      677 +  const dataSourcesFooter = (                                 
+      678 +    <div className="rounded-lg border                         
+          +border-[var(--color-navy-700)] bg-[var(--color-navy-900)]/60  
+          +px-5 py-4">                                                   
+      679 +      <h4 className="mb-2 text-xs font-semibold uppercase     
+          +tracking-wider text-[var(--color-navy-400)]">                 
+      680 +        Data Sources                                          
+      681 +      </h4>                                                   
+      682 +      <ul className="space-y-1 text-xs                        
+          +text-[var(--color-navy-400)]">                                
+      683 +        <li>                                                  
+      684 +          <span className="text-[var(--color-navy-300)]">Cost 
+          + rates:</span>{" "}                                           
+      685 +          {estimate.metadata.cost_data_source ?? "RSMeans     
+          +Square Foot Cost Models"}                                     
+          +({estimate.metadata.cost_data_version})                       
+      686 +        </li>                                                 
+      687 +        <li>                                                  
+      688 +          <span                                               
+          +className="text-[var(--color-navy-300)]">Location             
+          +adjustment:</span>{" "}                                       
+      689 +          {estimate.metadata.location_factor_source ?? "ENR   
+          +City Cost Index"} &mdash;{" "}                                
+      690 +          {estimate.building_summary.location}                
+          +({estimate.location_factor.toFixed(2)})                       
+      691 +        </li>                                                 
+      692 +        <li>                                                  
+      693 +          <span className="text-[var(--color-navy-300)]">Meas 
+          +urements:</span>{" "}                                         
+      694 +          {hasGeometry                                        
+      695 +            ? "Extracted from drawing geometry (vector        
+          +analysis) where available; AI-estimated where not"            
+      696 +            : "Calculated from building model parameters"}    
+      697 +        </li>                                                 
+      698 +        <li>                                                  
+      699 +          <span                                               
+          +className="text-[var(--color-navy-300)]">Division             
+          +allocations:</span>{" "}                                      
+      700 +          RSMeans typical percentage distributions for        
+          +{estimate.building_summary.building_type}                     
+      701 +        </li>                                                 
+      702 +      </ul>                                                   
+      703 +      <p className="mt-3 text-[10px] italic                   
+          +text-[var(--color-navy-500)]">                                
+      704 +        Estimates are conceptual-level                        
+          +(&plusmn;{confidencePercent}%) intended for early-stage       
+      705 +        budgeting. Not a substitute for detailed quantity     
+          +takeoff.                                                      
+      706 +      </p>                                                    
+      707 +    </div>                                                    
+      708 +  );                                                          
+      709 +                                                              
+      710    const handleExportCsv = useCallback(() => {                 
+      711      const rows: string[] = [];                                
+      712      const headers = hasGeometry                               
+
+⏺ Now I need to modify the division table to add expandable accordion rows. Let
+  me replace the entire divisionTable definition.
+
+⏺ Read 1 file (ctrl+o to expand)
+
+⏺ Now I'll replace the entire division table with the expandable version. The
+  key change is adding a detail row after each summary row that shows pricing
+  derivation when expanded.
+
+⏺ Update(frontend/src/app/analyze/page.tsx)
+  ⎿  Added 153 lines, removed 48 lines
+      745      URL.revokeObjectURL(url);                                 
+      746    }, [sortedBreakdown, hasGeometry, estimate.project_name]);  
+      747                                                                
+      748 +  const colCount = hasGeometry ? 8 : 5;                       
+      749 +                                                              
+      750    const divisionTable = (                                     
+      751      <div className="rounded-lg border                         
+           border-[var(--color-navy-700)] bg-[var(--color-navy-900)]     
+           p-6">                                                         
+      752        <div className="mb-4 flex items-center                  
+           justify-between">                                             
+     ...
+      777          <table className="w-full text-left text-sm">          
+      778            <thead>                                             
+      779              <tr className="border-b                           
+           border-[var(--color-navy-700)]">                              
+      780 +              <th className="pb-2 pr-2 font-mono text-xs      
+          +font-medium uppercase tracking-wider                          
+          +text-[var(--color-navy-500)]" />                              
+      781                <th className="pb-2 pr-4 font-mono text-xs      
+           font-medium uppercase tracking-wider                          
+           text-[var(--color-navy-500)]">                                
+      782                  Div                                           
+      783                </th>                                           
+     ...
+      812                const isSelected = selectedDivision ===         
+           div.csi_division;                                             
+      813                const isHovered = hoveredDivision ===           
+           div.csi_division;                                             
+      814                const isActive = isSelected || isHovered;       
+      815 +              const isExpanded = expandedDivision ===         
+          +div.csi_division;                                             
+      816                return (                                        
+      817 -                <tr                                           
+      818 -                  key={div.csi_division}                      
+      819 -                  className={`cursor-pointer border-b         
+          -border-[var(--color-navy-700)]/50 transition-colors ${        
+      820 -                    isActive                                  
+      821 -                      ? "bg-[var(--color-blueprint-500)]/10"  
+      822 -                      : i < 3                                 
+      823 -                        ? "bg-[var(--color-blueprint-500)]/3" 
+      824 -                        : "hover:bg-[var(--color-navy-800)]"  
+      825 -                  }`}                                         
+      826 -                                                              
+          -onMouseEnter={() => setHoveredDivision(div.csi_division)}     
+      827 -                                                              
+          -onMouseLeave={() => setHoveredDivision(null)}                 
+      828 -                                                              
+          -onClick={() => handleDivisionClick(div.csi_division)}         
+      829 -                >                                             
+      830 -                  <td className="py-2.5 pr-4 font-mono        
+          -text-[var(--color-navy-400)]">                                
+      831 -                    <span className="inline-flex items-center 
+          - gap-2">                                                      
+      832 -                      {hasGeometry && (                       
+      833 -                        <span                                 
+      834 -                          className="inline-block h-2.5 w-2.5 
+          - rounded-full"                                                
+      835 -                          style={{ backgroundColor:           
+          -getDivisionColor(div.csi_division) }}                         
+      836 -                        />                                    
+      837 -                      )}                                      
+      838 -                      {div.csi_division}                      
+      839 -                    </span>                                   
+      840 -                  </td>                                       
+      841 -                  <td className="py-2.5 pr-4                  
+          -text-[var(--color-navy-200)]">                                
+      842 -                    {div.division_name}                       
+      843 -                  </td>                                       
+      844 -                  {hasGeometry && (                           
+      845 -                    <>                                        
+      846 -                      <td className="py-2.5 pr-4 text-right   
+          -font-mono text-[var(--color-navy-400)]">                      
+      847 -                        {div.quantity != null ?               
+          -fmtQty(div.quantity) : "—"}                                   
+      817 +                <React.Fragment key={div.csi_division}>       
+      818 +                  <tr                                         
+      819 +                    className={`cursor-pointer border-b       
+          +border-[var(--color-navy-700)]/50 transition-colors ${        
+      820 +                      isActive                                
+      821 +                        ? "bg-[var(--color-blueprint-500)]/10"
+      822 +                        : i < 3                               
+      823 +                          ?                                   
+          +"bg-[var(--color-blueprint-500)]/3"                           
+      824 +                          :                                   
+          +"hover:bg-[var(--color-navy-800)]"                            
+      825 +                    }`}                                       
+      826 +                                                              
+          +onMouseEnter={() => setHoveredDivision(div.csi_division)}     
+      827 +                                                              
+          +onMouseLeave={() => setHoveredDivision(null)}                 
+      828 +                                                              
+          +onClick={() => handleDivisionClick(div.csi_division)}         
+      829 +                  >                                           
+      830 +                    <td className="w-6 py-2.5 pr-1">          
+      831 +                      <button                                 
+      832 +                        type="button"                         
+      833 +                        onClick={(e) => {                     
+      834 +                          e.stopPropagation();                
+      835 +                          setExpandedDivision(isExpanded ?    
+          +null : div.csi_division);                                     
+      836 +                        }}                                    
+      837 +                        className="flex h-5 w-5 items-center  
+          +justify-center rounded text-[var(--color-navy-500)]           
+          +transition-colors hover:bg-[var(--color-navy-700)]            
+          +hover:text-white"                                             
+      838 +                        aria-label={isExpanded ? "Collapse    
+          +details" : "Expand details"}                                  
+      839 +                      >                                       
+      840 +                        <svg                                  
+      841 +                          width="10"                          
+      842 +                          height="10"                         
+      843 +                          viewBox="0 0 10 10"                 
+      844 +                          fill="none"                         
+      845 +                          className={`transition-transform    
+          +${isExpanded ? "rotate-90" : ""}`}                            
+      846 +                        >                                     
+      847 +                          <path d="M3 1l4 4-4 4"              
+          +stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" 
+          + strokeLinejoin="round" />                                    
+      848 +                        </svg>                                
+      849 +                      </button>                               
+      850 +                    </td>                                     
+      851 +                    <td className="py-2.5 pr-4 font-mono      
+          +text-[var(--color-navy-400)]">                                
+      852 +                      <span className="inline-flex            
+          +items-center gap-2">                                          
+      853 +                        {hasGeometry && (                     
+      854 +                          <span                               
+      855 +                            className="inline-block h-2.5     
+          +w-2.5 rounded-full"                                           
+      856 +                            style={{ backgroundColor:         
+          +getDivisionColor(div.csi_division) }}                         
+      857 +                          />                                  
+      858 +                        )}                                    
+      859 +                        {div.csi_division}                    
+      860 +                      </span>                                 
+      861 +                    </td>                                     
+      862 +                    <td className="py-2.5 pr-4                
+          +text-[var(--color-navy-200)]">                                
+      863 +                      {div.division_name}                     
+      864 +                    </td>                                     
+      865 +                    {hasGeometry && (                         
+      866 +                      <>                                      
+      867 +                        <td className="py-2.5 pr-4 text-right 
+          + font-mono text-[var(--color-navy-400)]">                     
+      868 +                          {div.quantity != null ?             
+          +fmtQty(div.quantity) : "—"}                                   
+      869 +                        </td>                                 
+      870 +                        <td className="py-2.5 pr-4 text-right 
+          + font-mono text-xs text-[var(--color-navy-500)]">             
+      871 +                          {div.unit ?? "—"}                   
+      872 +                        </td>                                 
+      873 +                        <td className="py-2.5 pr-4 text-right 
+          + font-mono text-[var(--color-navy-400)]">                     
+      874 +                          {div.unit_cost != null ?            
+          +fmtUnit(div.unit_cost) : "—"}                                 
+      875 +                        </td>                                 
+      876 +                      </>                                     
+      877 +                    )}                                        
+      878 +                    <td className="py-2.5 pr-4 text-right     
+          +font-mono text-white">                                        
+      879 +                      {fmt(div.cost.expected)}                
+      880 +                    </td>                                     
+      881 +                    <td className="py-2.5 pr-4 text-right     
+          +font-mono text-[var(--color-navy-400)]">                      
+      882 +                      {div.percent_of_total.toFixed(1)}%      
+      883 +                    </td>                                     
+      884 +                    <td className="py-2.5 text-right          
+          +font-mono text-xs text-[var(--color-navy-500)]">              
+      885 +                      {fmt(div.cost.low)} &ndash;             
+          +{fmt(div.cost.high)}                                          
+      886 +                    </td>                                     
+      887 +                  </tr>                                       
+      888 +                  {isExpanded && (                            
+      889 +                    <tr className="border-b                   
+          +border-[var(--color-navy-700)]/50                             
+          +bg-[var(--color-navy-800)]/50">                               
+      890 +                      <td colSpan={colCount + 1}              
+          +className="px-4 py-3">                                        
+      891 +                        <div className="rounded border        
+          +border-[var(--color-navy-700)] bg-[var(--color-navy-900)]/80  
+          +px-4 py-3">                                                   
+      892 +                          <p className="mb-2 text-[10px]      
+          +font-semibold uppercase tracking-wider                        
+          +text-[var(--color-navy-400)]">                                
+      893 +                            How this was calculated           
+      894 +                          </p>                                
+      895 +                          <div className="grid                
+          +grid-cols-[auto_1fr] gap-x-4 gap-y-1 font-mono text-xs">      
+      896 +                            {div.base_rate != null && (       
+      897 +                              <>                              
+      898 +                                <span                         
+          +className="text-[var(--color-navy-400)]">Base rate:</span>    
+      899 +                                <span                         
+          +className="text-[var(--color-navy-200)]">                     
+      900 +                                                              
+          +{fmtUnit(div.base_rate)}/{div.unit ?? "SF"}{" "}              
+      901 +                                  <span                       
+          +className="text-[var(--color-navy-500)]">                     
+      902 +                                    ({div.rate_source ??      
+          +"RSMeans"}, {estimate.building_summary.building_type})        
+      903 +                                  </span>                     
+      904 +                                </span>                       
+      905 +                              </>                             
+      906 +                            )}                                
+      907 +                            {div.location_factor != null && ( 
+      908 +                              <>                              
+      909 +                                <span                         
+          +className="text-[var(--color-navy-400)]">Location adj:</span> 
+      910 +                                <span                         
+          +className="text-[var(--color-navy-200)]">                     
+      911 +                                  &times;                     
+          +{div.location_factor.toFixed(2)}{" "}                         
+      912 +                                  <span                       
+          +className="text-[var(--color-navy-500)]">                     
+      913 +                                                              
+          +({estimate.building_summary.location} &mdash; ENR index)      
+      914 +                                  </span>                     
+      915 +                                </span>                       
+      916 +                              </>                             
+      917 +                            )}                                
+      918 +                            {div.adjusted_rate != null && (   
+      919 +                              <>                              
+      920 +                                <span                         
+          +className="text-[var(--color-navy-400)]">Adjusted             
+          +rate:</span>                                                  
+      921 +                                <span                         
+          +className="text-white">{fmtUnit(div.adjusted_rate)}/{div.unit 
+          + ?? "SF"}</span>                                              
+      922 +                              </>                             
+      923 +                            )}                                
+      924 +                            {div.quantity != null && (        
+      925 +                              <>                              
+      926 +                                <span                         
+          +className="text-[var(--color-navy-400)]">Measured             
+          +area:</span>                                                  
+      927 +                                <span                         
+          +className="text-[var(--color-navy-200)]">                     
+      928 +                                  {fmtQty(div.quantity)}      
+          +{div.unit ?? "SF"}{" "}                                       
+      929 +                                  {div.quantity_source && (   
+      930 +                                    <span                     
+          +className="text-[var(--color-navy-500)]">                     
+      931 +                                                              
+          +({div.quantity_source.toLowerCase()})                         
+      932 +                                    </span>                   
+      933 +                                  )}                          
+      934 +                                </span>                       
+      935 +                              </>                             
+      936 +                            )}                                
+      937 +                            <span                             
+          +className="text-[var(--color-navy-400)]">Line total:</span>   
+      938 +                            <span className="text-white">     
+      939 +                              {fmt(div.cost.expected)}        
+      940 +                              {div.adjusted_rate != null &&   
+          +div.quantity != null && (                                     
+      941 +                                <span                         
+          +className="text-[var(--color-navy-500)]">                     
+      942 +                                  {"                          
+          +"}({fmtUnit(div.adjusted_rate)} &times;                       
+          +{fmtQty(div.quantity)})                                       
+      943 +                                </span>                       
+      944 +                              )}                              
+      945 +                            </span>                           
+      946 +                          </div>                              
+      947 +                          {div.includes_description && (      
+      948 +                            <div className="mt-2 border-t     
+          +border-[var(--color-navy-700)]/50 pt-2">                      
+      949 +                              <span className="text-[10px]    
+          +font-semibold uppercase tracking-wider                        
+          +text-[var(--color-navy-400)]">                                
+      950 +                                What&apos;s included:{" "}    
+      951 +                              </span>                         
+      952 +                              <span className="text-xs        
+          +text-[var(--color-navy-300)]">                                
+      953 +                                {div.includes_description}    
+      954 +                              </span>                         
+      955 +                            </div>                            
+      956 +                          )}                                  
+      957 +                          <div className="mt-2 border-t       
+          +border-[var(--color-navy-700)]/50 pt-2 text-xs">              
+      958 +                            <span                             
+          +className="text-[var(--color-navy-500)]">Confidence: </span>  
+      959 +                            <span                             
+          +className="text-[var(--color-navy-300)]">                     
+      960 +                              &plusmn;{confidencePercent}%    
+          +&rarr; {fmt(div.cost.low)} &ndash; {fmt(div.cost.high)}       
+      961 +                            </span>                           
+      962 +                          </div>                              
+      963 +                        </div>                                
+      964                        </td>                                   
+      965 -                      <td className="py-2.5 pr-4 text-right   
+          -font-mono text-xs text-[var(--color-navy-500)]">              
+      966 -                        {div.unit ?? "—"}                     
+      967 -                      </td>                                   
+      968 -                      <td className="py-2.5 pr-4 text-right   
+          -font-mono text-[var(--color-navy-400)]">                      
+      969 -                        {div.unit_cost != null ?              
+          -fmtUnit(div.unit_cost) : "—"}                                 
+      970 -                      </td>                                   
+      971 -                    </>                                       
+      965 +                    </tr>                                     
+      966                    )}                                          
+      967 -                  <td className="py-2.5 pr-4 text-right       
+          -font-mono text-white">                                        
+      968 -                    {fmt(div.cost.expected)}                  
+      969 -                  </td>                                       
+      970 -                  <td className="py-2.5 pr-4 text-right       
+          -font-mono text-[var(--color-navy-400)]">                      
+      971 -                    {div.percent_of_total.toFixed(1)}%        
+      972 -                  </td>                                       
+      973 -                  <td className="py-2.5 text-right font-mono  
+          -text-xs text-[var(--color-navy-500)]">                        
+      974 -                    {fmt(div.cost.low)} &ndash;               
+          -{fmt(div.cost.high)}                                          
+      975 -                  </td>                                       
+      976 -                </tr>                                         
+      967 +                </React.Fragment>                             
+      968                );                                              
+      969              })}                                               
+      970            </tbody>                                            
+
+⏺ I need to add the React import since I'm using React.Fragment. Let me check
+  the current imports.
+
+⏺ Update(frontend/src/app/analyze/page.tsx)
+  ⎿  Added 1 line, removed 1 line
+      1  "use client";                                                   
+      2                                                                  
+      3 -import { useCallback, useMemo, useRef, useState } from "react"; 
+      3 +import React,                                                   
+        +{ useCallback, useMemo, useRef, useState } from "react";        
+      4  import Link from "next/link";                                   
+      5  import { analyzePlan, estimateFromModel, getSampleEstimate }    
+         from "@/lib/api";                                               
+      6  import type {                                                   
+
+⏺ Now I need to insert the methodologyBadge and dataSourcesFooter into the
+  layout. Let me update both layout paths (geometry and no-geometry).
+
+⏺ Read 1 file (ctrl+o to expand)
+
+⏺ Now I'll add the methodologyBadge and dataSourcesFooter into the layouts. For
+  the split-panel layout:
+
+⏺ Update(frontend/src/app/analyze/page.tsx)
+  ⎿  Added 2 lines
+      1039      return (                                                 
+      1040        <section className="mt-12 space-y-6">                  
+      1041          {headerCard}                                         
+      1042 +        {methodologyBadge}                                   
+      1043                                                               
+      1044          {/* Split panel: drawing + breakdown */}             
+      1045          <div className="flex flex-col gap-6 lg:flex-row">    
+     ...
+      1057            {/* Right: Breakdown + details */}                 
+      1058            <div className="w-full space-y-6 lg:w-[45%]">      
+      1059              {divisionTable}                                  
+      1060 +            {dataSourcesFooter}                              
+      1061                                                               
+      1062              <BuildingParametersEditor                        
+      1063                model={editedModel}                            
+
+⏺ Now the no-geometry layout. Let me read it.
+
+⏺ Read 1 file (ctrl+o to expand)
+
+⏺ Update(frontend/src/app/analyze/page.tsx)
+  ⎿  Added 2 lines
+      1093    return (                                                   
+      1094      <section className="mt-12 space-y-6">                    
+      1095        {headerCard}                                           
+      1096 +      {methodologyBadge}                                     
+      1097                                                               
+      1098        <BuildingParametersEditor                              
+      1099          model={editedModel}                                  
+     ...
+      1117        />                                                     
+      1118                                                               
+      1119        {divisionTable}                                        
+      1120 +      {dataSourcesFooter}                                    
+      1121        {bottomSections}                                       
+      1122      </section>                                               
+      1123    );                                                         
+
+⏺ Now let's run the backend quality gates.
+
+⏺ Bash(cd /Users/ernestorivera/Desktop/dev_dump/cm/takeoffs/backend && source
+      .venv/bin/activate && python3 -m pytest tests/ -x -q 2>&1)
+  ⎿  Running in the background (↓ to manage)
+  ⎿  (timeout 2m)
+
+⏺ Bash(cd /Users/ernestorivera/Desktop/dev_dump/cm/takeoffs/backend && source
+      .venv/bin/activate && python3 -m mypy --strict cantena 2>&1)
+  ⎿  Running in the background (↓ to manage)
+  ⎿  (timeout 2m)
+
+⏺ Task Output bac2c0e
+  ⎿  ============================= test session starts ====================
+     ==========
+     platform darwin -- Python 3.11.1, pytest-9.0.2, pluggy-1.6.0
+     … +66 lines (ctrl+o to expand)
+
+⏺ All 597 tests pass. Let me check mypy.
+
+⏺ Task Output b0d6656
+  ⎿  (No output)
+
+⏺ Task Output b0d6656
+  ⎿  (No output)
+
+⏺ Task Output b0d6656
+  ⎿  Traceback (most recent call last):
+       File "<frozen runpy>", line 198, in _run_module_as_main
+       File "<frozen runpy>", line 88, in _run_code
+     … +16 lines (ctrl+o to expand)
+
+⏺ That's an internal mypy crash (not related to my changes). Let me clear the
+  cache and retry.
+
+⏺ Bash(cd /Users/ernestorivera/Desktop/dev_dump/cm/takeoffs/backend && rm -rf
+      .mypy_cache && source .venv/bin/activate && python3 -m mypy --strict
+      cantena 2>&1)
+  ⎿  Running in the background (↓ to manage)
+  ⎿  (timeout 5m)
+
+⏺ Task Output ba575bf
+  ⎿  (No output)
+
+⏺ Task Output ba575bf
+  ⎿  Interrupted · What should Claude do instead?
+
+⏺ Background command "Run pytest on backend tests" completed (exit code 0)
+
+⏺ Let me check on the mypy run.
+
+⏺ Read 1 file (ctrl+o to expand)
+
+⏺ Mypy is still running (large codebase with clean cache). Let me wait a bit
+  more.
+
+⏺ Task Output ba575bf
+  ⎿  Success: no issues found in 38 source files
+
+❯ Can I not test this as it is ? 
+  ⎿  Interrupted · What should Claude do instead?
+
+⏺ Both quality gates pass:
+
+  - pytest: 597 passed
+  - mypy --strict: Success, no issues found in 38 source files
+
+⏺ All done. Here's a summary of what was implemented:
+
+  Backend Changes
+
+  cantena/models/estimate.py
+  - Added 6 new optional fields to DivisionCost: base_rate, location_factor,
+  adjusted_rate, quantity_source, includes_description, rate_source
+  - Added 3 new fields to EstimateMetadata: cost_data_source,
+  location_factor_source, building_type_model
+
+  cantena/data/csi_divisions.py
+  - Added DIVISION_DESCRIPTIONS dict — plain-English scope descriptions for all
+  24 CSI divisions (e.g., "09" → "Drywall, paint, flooring, tile, trim, ceiling
+  finishes")
+
+  cantena/engine.py
+  - _generate_division_breakdown now computes base_rate (national avg before
+  location/complexity), adjusted_rate, location_factor, includes_description,
+  and rate_source for every division
+  - _attach_geometry_refs now adds quantity_source ("Measured from drawing
+  geometry" or "Calculated from building footprint") and preserves all
+  derivation fields
+  - Metadata now includes building_type_model from the matched seed entry
+
+  Frontend Changes
+
+  src/lib/types.ts
+  - Updated DivisionCost and EstimateMetadata interfaces to match new backend
+  fields
+
+  src/app/analyze/page.tsx
+  - Methodology badge: Concise banner below the header showing "RSMeans Square
+  Foot Cost Model · {building type} · {location} adjustment ({factor}×) ·
+  ±15–25% conceptual-stage range"
+  - Expandable division rows: Each row has a chevron toggle. Expanding reveals:
+  base rate, location adjustment, adjusted rate, measured quantity with source,
+  line total calculation, "What's included" scope description, and confidence
+  range
+  - Data Sources footer: Attributes RSMeans, ENR City Cost Index, measurement
+  method, and division allocation source, with a disclaimer about
+  conceptual-level accuracy
+  - Both layout paths (geometry split-panel and single-column) updated
+
+  What didn't change
+
+  - Zero changes to cost calculation logic — all numbers are identical
+  - All 597 tests pass, mypy --strict clean
+
+✻ Baked for 2m 40s
+
+⏺ Background command "Run mypy strict on cantena" failed with exit code 1
+
+⏺ That was the earlier mypy run that crashed due to a stale cache. The
+  clean-cache run (ba575bf) already succeeded with "Success: no issues found in
+  38 source files". You're good to test it as-is.
+
+⏺ Background command "Run mypy with clean cache" completed (exit code 0)
+
+⏺ Already read that one — it was "Success: no issues found in 38 source files".
+  Everything's clean. Go ahead and test it out.
